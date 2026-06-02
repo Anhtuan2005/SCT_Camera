@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}{{ camera.name if camera else cam_id }} · SCT Camera{% endblock %}
+{% block eyebrow %}Camera Detail{% endblock %}
+{% block heading %}{{ camera.name if camera else cam_id }}{% endblock %}
+{% block top_actions %}
+  <a class="button" href="/">Back</a>
+{% endblock %}
+
+{% block content %}
+{% if camera %}
+  <section class="detail-layout" data-camera-id="{{ camera.camera_id }}">
+    <div class="detail-primary">
+      <div class="detail-toolbar">
+        <span class="status-badge {{ camera.status }}" data-detail-status>{{ camera.status }}</span>
+        <span class="toolbar-stat"><strong data-detail-objects>{{ camera.object_count }}</strong> objects</span>
+        <span class="toolbar-stat"><strong data-detail-fps>{{ camera.fps | default(0.0) }}</strong> fps</span>
+        <span class="toolbar-stat"><strong data-detail-alerts>{{ camera.alert_count }}</strong> alerts</span>
+        <div class="camera-state-toggle-group">
+          <button class="camera-switch camera-state-toggle{% if camera.enabled %} active{% endif %}" type="button" id="detailEnabledToggleLabel" data-camera-id="{{ camera.camera_id }}" data-camera-enabled-toggle="{{ camera.camera_id }}" role="switch" aria-checked="{{ 'true' if camera.enabled else 'false' }}">
+            <span class="switch-control">
+              <span class="switch-track"></span>
+            </span>
+            <span id="detailEnabledToggleText">{{ "Online" if camera.enabled else "Offline" }}</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="editor-stage">
+        <img id="editorStream" class="detail-stream" src="/api/stream/{{ camera.camera_id }}" alt="{{ camera.name }} live stream">
+        <canvas id="roiCanvas" class="editor-canvas active"></canvas>
+        <canvas id="lineCanvas" class="editor-canvas"></canvas>
+      </div>
+
+      <div class="segmented-control" role="tablist" aria-label="Editor mode">
+        <button class="active" type="button" data-editor-mode="roi">ROI</button>
+        <button type="button" data-editor-mode="line">Line</button>
+      </div>
+    </div>
+
+    <aside class="detail-side">
+      <section class="panel" id="roiPanel">
+        <div class="panel-heading">
+          <h2>ROI Zones</h2>
+          <button class="button small" type="button" id="clearRoiButton">Clear</button>
+        </div>
+        <label>
+          Name
+          <input id="zoneName" type="text" value="New Zone">
+        </label>
+        <input id="zoneType" type="hidden" value="all">
+        <label id="zoneThresholdLabel">
+          Alert after seconds
+          <input id="zoneThreshold" type="number" min="1" value="15">
+        </label>
+        <button class="button primary full" type="button" id="saveZoneButton">Save Zone</button>
+        <div id="zoneList" class="compact-list"></div>
+      </section>
+
+      <section class="panel hidden" id="linePanel">
+        <div class="panel-heading">
+          <h2>Counting Lines</h2>
+          <button class="button small" type="button" id="clearLineButton">Clear</button>
+        </div>
+        <label>
+          Name
+          <input id="lineName" type="text" value="New Line">
+        </label>
+        <label>
+          Direction
+          <select id="lineDirection">
+            <option value="forward">Forward</option>
+            <option value="reverse">Reverse</option>
+          </select>
+        </label>
+        <button class="button primary full" type="button" id="saveLineButton">Save Line</button>
+        <div id="lineList" class="compact-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>Recent Alerts</h2>
+        </div>
+        <div class="table-wrap">
+          <table class="alert-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Type</th>
+                <th>Target</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="alertTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </aside>
+  </section>
+{% else %}
+  <section class="empty-state">
+    <h2>Camera not found</h2>
+    <a class="button primary" href="/">Dashboard</a>
+  </section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if camera %}
+  <script src="/static/js/roi_editor.js?v=roi-4"></script>
+  <script src="/static/js/line_editor.js"></script>
+  {% endif %}
+{% endblock %}

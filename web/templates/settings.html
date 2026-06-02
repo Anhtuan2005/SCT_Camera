@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}Control Room | SCT Camera{% endblock %}
+{% block eyebrow %}Runtime Configuration{% endblock %}
+{% block heading %}Control Room Settings{% endblock %}
+
+{% block content %}
+  {% set detection_classes = settings.detection.classes | default([0, 1]) %}
+  <section class="settings-shell">
+    <aside class="settings-rail" aria-label="Settings sections">
+      <a href="#cameras">Cameras</a>
+      <a href="#detection">Detection</a>
+      <a href="#behavior">Behavior</a>
+      <a href="#learning">Learning</a>
+      <a href="#alerts">Alerts</a>
+      <a href="#pipeline">Pipeline</a>
+    </aside>
+
+    <div class="settings-content">
+      <section class="panel wide settings-section" id="cameras">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Feed registry</p>
+            <h2>Cameras</h2>
+          </div>
+        </div>
+        <form id="cameraForm" class="inline-form camera-form">
+          <input name="name" type="text" placeholder="Camera name" required>
+          <input name="source" type="text" placeholder="0, video.mp4, or rtsp://..." required>
+          <label class="checkbox-row">
+            <input name="enabled" type="checkbox" checked>
+            Enabled
+          </label>
+          <button class="button primary" type="submit">Add</button>
+        </form>
+        <div id="settingsCameraList" class="camera-list">
+          {% for camera in cameras %}
+            <div class="camera-list-row" data-settings-camera="{{ camera.camera_id }}">
+              <div>
+                <strong>{{ camera.name }}</strong>
+                <span class="mono">{{ camera.source }}</span>
+              </div>
+              <span class="status-badge {{ camera.status }}">{{ camera.status }}</span>
+              <a class="button small" href="/camera/{{ camera.camera_id }}">Open</a>
+              <button class="button danger small" type="button" data-delete-camera="{{ camera.camera_id }}">Delete</button>
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <form class="panel wide settings-section" id="thresholdForm">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Vision engine</p>
+            <h2 id="detection">Detection</h2>
+          </div>
+          <button class="button primary" type="submit">Save Detection</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            Model
+            <select name="model">
+              <option value="yolo11n.pt" {% if settings.detection.model == "yolo11n.pt" %}selected{% endif %}>yolo11n.pt</option>
+              <option value="yolo11s.pt" {% if settings.detection.model == "yolo11s.pt" %}selected{% endif %}>yolo11s.pt</option>
+              <option value="yolo11m.pt" {% if settings.detection.model == "yolo11m.pt" %}selected{% endif %}>yolo11m.pt</option>
+            </select>
+          </label>
+          <label>
+            Device
+            <input name="device" type="text" value="{{ settings.detection.device }}">
+          </label>
+          <label>
+            Confidence
+            <input name="confidence" type="number" step="0.05" min="0.05" max="0.95" value="{{ settings.detection.confidence }}">
+          </label>
+          <label>
+            IoU threshold
+            <input name="iou" type="number" step="0.05" min="0.1" max="0.95" value="{{ settings.detection.iou | default(0.5) }}">
+          </label>
+          <label>
+            Inference size
+            <input name="imgsz" type="number" step="32" min="320" max="1280" value="{{ settings.detection.imgsz | default(640) }}">
+          </label>
+        </div>
+
+        <fieldset class="option-group">
+          <legend>Object classes</legend>
+          <div class="option-grid">
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="0" {% if 0 in detection_classes %}checked{% endif %}>Person</label>
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="1" {% if 1 in detection_classes %}checked{% endif %}>Bicycle</label>
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="2" {% if 2 in detection_classes %}checked{% endif %}>Car</label>
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="3" {% if 3 in detection_classes %}checked{% endif %}>Motorcycle</label>
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="5" {% if 5 in detection_classes %}checked{% endif %}>Bus</label>
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="7" {% if 7 in detection_classes %}checked{% endif %}>Truck</label>
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="24" {% if 24 in detection_classes %}checked{% endif %}>Backpack</label>
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="26" {% if 26 in detection_classes %}checked{% endif %}>Handbag</label>
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="28" {% if 28 in detection_classes %}checked{% endif %}>Suitcase</label>
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="15" {% if 15 in detection_classes %}checked{% endif %}>Cat</label>
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="16" {% if 16 in detection_classes %}checked{% endif %}>Dog</label>
+          </div>
+        </fieldset>
+
+        <section class="subsection" id="behavior">
+          <div class="subsection-heading">
+            <p class="section-kicker">Rules</p>
+            <h2>Behavior Logic</h2>
+          </div>
+          <div class="form-grid">
+            <label>
+              Loitering threshold seconds
+              <input name="loitering_threshold_seconds" type="number" min="1" value="{{ settings.behavior.loitering_threshold_seconds }}">
+            </label>
+            <label>
+              Stranger watch seconds
+              <input name="stranger_watch_seconds" type="number" min="1" value="{{ settings.behavior.stranger_watch_seconds | default(180) }}">
+            </label>
+            <label>
+              Asset missing seconds
+              <input name="asset_missing_seconds" type="number" min="1" value="{{ settings.behavior.asset_missing_seconds | default(6) }}">
+            </label>
+          </div>
+          <fieldset class="option-group">
+            <legend>Theft behavior</legend>
+            <div class="form-grid">
+              <label class="checkbox-row"><input name="theft_enabled" type="checkbox" {% if settings.behavior.theft.enabled | default(true) %}checked{% endif %}>Enabled</label>
+              <label>
+                Near vehicle seconds
+                <input name="theft_proximity_seconds" type="number" min="1" value="{{ settings.behavior.theft.proximity_seconds | default(10) }}">
+              </label>
+              <label>
+                Near vehicle meters
+                <input name="theft_proximity_distance_meters" type="number" step="0.1" min="0.2" value="{{ settings.behavior.theft.proximity_distance_meters | default(1.5) }}">
+              </label>
+              <label>
+                Meters per frame diagonal
+                <input name="theft_meters_per_frame_diagonal" type="number" step="0.5" min="1" value="{{ settings.behavior.theft.meters_per_frame_diagonal | default(12) }}">
+              </label>
+              <label>
+                Pacing passes
+                <input name="theft_pacing_min_passes" type="number" min="1" value="{{ settings.behavior.theft.pacing_min_passes | default(2) }}">
+              </label>
+              <label>
+                Score threshold
+                <input name="theft_score_threshold" type="number" min="1" max="5" value="{{ settings.behavior.theft.score_threshold | default(2) }}">
+              </label>
+              <label class="checkbox-row"><input name="theft_require_vehicle_signal" type="checkbox" {% if settings.behavior.theft.require_vehicle_signal | default(true) %}checked{% endif %}>Require vehicle signal</label>
+            </div>
+          </fieldset>
+        </section>
+
+        <section class="subsection">
+          <div class="subsection-heading">
+            <p class="section-kicker">Pose estimation</p>
+            <h2>Pose</h2>
+          </div>
+          <div class="form-grid">
+            <label class="checkbox-row"><input name="pose_enabled" type="checkbox" {% if settings.pose.enabled | default(false) %}checked{% endif %}>Enabled</label>
+            <label>
+              Pose model
+              <input name="pose_model" type="text" value="{{ settings.pose.model | default('yolo11n-pose.pt') }}">
+            </label>
+            <label class="checkbox-row"><input name="pose_allow_download" type="checkbox" {% if settings.pose.allow_download | default(false) %}checked{% endif %}>Allow download</label>
+          </div>
+        </section>
+
+        <section class="subsection" id="pipeline">
+          <div class="subsection-heading">
+            <p class="section-kicker">Processing</p>
+            <h2>Pipeline</h2>
+          </div>
+          <div class="form-grid">
+            <label class="checkbox-row"><input name="siren_enabled" type="checkbox" {% if settings.siren.enabled %}checked{% endif %}>Siren enabled</label>
+            <label>
+              Frame skip
+              <input name="frame_skip" type="number" min="1" value="{{ settings.pipeline.frame_skip }}">
+            </label>
+            <label>
+              Processing max height
+              <input name="processing_max_height" type="number" step="60" min="360" max="1440" value="{{ settings.pipeline.processing_max_height | default(720) }}">
+            </label>
+            <label>
+              Track grace frames
+              <input name="track_grace_frames" type="number" min="0" max="60" value="{{ settings.tracking.track_grace_frames | default(6) }}">
+            </label>
+            <label>
+              Duplicate IoU threshold
+              <input name="duplicate_iou_threshold" type="number" step="0.05" min="0.5" max="0.98" value="{{ settings.tracking.duplicate_iou_threshold | default(0.85) }}">
+            </label>
+          </div>
+        </section>
+
+        <section class="subsection" id="learning">
+          <div class="subsection-heading">
+            <p class="section-kicker">Supervised risk model</p>
+            <h2>Behavior Learning</h2>
+          </div>
+          <div class="form-grid">
+            <label class="checkbox-row">
+              <input name="learning_enabled" type="checkbox" {% if settings.behavior_learning.enabled | default(true) %}checked{% endif %}>
+              Enabled
+            </label>
+            <label class="checkbox-row">
+              <input name="learning_log_candidates" type="checkbox" {% if settings.behavior_learning.log_candidates | default(true) %}checked{% endif %}>
+              Log candidates
+            </label>
+            <label class="checkbox-row">
+              <input name="learning_gate_alerts" type="checkbox" {% if settings.behavior_learning.gate_alerts | default(false) %}checked{% endif %}>
+              Gate alerts by risk
+            </label>
+            <label>
+              Event log path
+              <input name="learning_event_log_path" type="text" value="{{ settings.behavior_learning.event_log_path | default('data/behavior_events.jsonl') }}">
+            </label>
+            <label>
+              Model path
+              <input name="learning_model_path" type="text" value="{{ settings.behavior_learning.model_path | default('models/behavior_classifier.npz') }}">
+            </label>
+            <label>
+              Minimum risk score
+              <input name="learning_min_risk_score" type="number" step="0.05" min="0" max="1" value="{{ settings.behavior_learning.min_risk_score | default(0.65) }}">
+            </label>
+          </div>
+        </section>
+      </form>
+
+      <form class="panel wide settings-section" id="telegramForm">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Notifications</p>
+            <h2 id="alerts">Telegram Alerts</h2>
+          </div>
+          <button class="button small" type="button" id="testTelegramButton">Test</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            Bot token
+            <input name="bot_token" type="password" value="{{ settings.telegram.bot_token }}">
+          </label>
+          <label>
+            Chat ID
+            <input name="chat_id" type="text" value="{{ settings.telegram.chat_id }}">
+          </label>
+          <label class="checkbox-row">
+            <input name="enabled" type="checkbox" {% if settings.telegram.enabled %}checked{% endif %}>
+            Enabled
+          </label>
+          <label>
+            Cooldown seconds
+            <input name="cooldown_seconds" type="number" min="1" value="{{ settings.telegram.cooldown_seconds }}">
+          </label>
+        </div>
+        <button class="button primary full" type="submit">Save Telegram</button>
+      </form>
+    </div>
+  </section>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Live Wall | SCT Camera{% endblock %}
+{% block eyebrow %}Perimeter Overview{% endblock %}
+{% block heading %}Live Security Wall{% endblock %}
+{% block top_actions %}
+  <a class="button primary" href="/settings">Add Camera</a>
+{% endblock %}
+
+{% block content %}
+  <section class="summary-strip">
+    <div class="summary-item">
+      <span>Total feeds</span>
+      <strong id="summaryTotal">{{ cameras | length }}</strong>
+    </div>
+    <div class="summary-item">
+      <span>Online feeds</span>
+      <strong id="summaryOnline">0</strong>
+    </div>
+    <div class="summary-item">
+      <span>Objects tracked</span>
+      <strong id="summaryObjects">0</strong>
+    </div>
+    <div class="summary-item alert-summary">
+      <span>Active alerts</span>
+      <strong id="summaryAlerts">0</strong>
+    </div>
+  </section>
+
+  {% if cameras %}
+    <section class="detection-control-bar" id="detectionControlBar">
+      <div class="control-label">
+        <span class="ctrl-icon">ARM</span>
+        <span>Camera Detection Control</span>
+      </div>
+      <div class="control-actions">
+        <div class="global-switch-row" id="toggleAllLabel">
+          <span>All feeds</span>
+          <strong id="toggleAllText">On</strong>
+          <button class="switch-control global-switch active" type="button" id="toggleAllCameras" role="switch" aria-checked="true" aria-label="Toggle all cameras">
+            <span class="switch-track"></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section id="cameraGrid" class="camera-grid">
+      {% for camera in cameras %}
+      <article class="camera-card{% if camera.status == 'paused' %} paused{% endif %}{% if not camera.enabled %} disabled{% endif %}" data-camera-card="{{ camera.camera_id }}">
+        <a class="stream-link" href="/camera/{{ camera.camera_id }}">
+          <img class="stream-img" src="/api/stream/{{ camera.camera_id }}" alt="{{ camera.name }} live stream">
+        </a>
+        <div class="camera-card-body">
+          <div>
+            <h2>{{ camera.name }}</h2>
+            <p class="mono">{{ camera.camera_id }}</p>
+          </div>
+          <span class="status-badge {{ camera.status }}" data-status>{{ camera.status }}</span>
+        </div>
+        <div class="metric-row">
+          <span><strong data-objects>{{ camera.object_count }}</strong> objects</span>
+          <span><strong data-fps>{{ camera.fps | default(0.0) }}</strong> fps</span>
+          <span><strong data-alerts>{{ camera.alert_count }}</strong> alerts</span>
+        </div>
+        <div class="camera-toggle-row">
+          <button class="camera-switch camera-state-toggle{% if camera.enabled %} active{% endif %}" type="button" data-toggle-camera-enabled="{{ camera.camera_id }}" data-camera-enabled-toggle="{{ camera.camera_id }}" role="switch" aria-checked="{{ 'true' if camera.enabled else 'false' }}">
+            <span class="switch-control">
+              <span class="switch-track"></span>
+            </span>
+            <span data-camera-enabled-text>{{ "Online" if camera.enabled else "Offline" }}</span>
+          </button>
+        </div>
+      </article>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="empty-state">
+      <h2>No cameras configured</h2>
+      <p>Add a webcam, video file, or RTSP source from Control Room.</p>
+      <a class="button primary" href="/settings">Add Camera</a>
+    </section>
+  {% endif %}
+{% endblock %}

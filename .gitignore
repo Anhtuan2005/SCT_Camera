@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+env/
+
+# Tooling and test caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+config/settings.yaml
+config/cameras/*.yaml
+config/cameras/*.yaml.disabled
+config/known_people/*
+!config/known_people/.gitkeep
+!config/known_people/README.md
+
+# Runtime output
+logs/
+*.log
+
+# Generated data and local models
+data/
+models/
+*.pt
+*.onnx
+*.engine
+
+# Local media
+test_videos/
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

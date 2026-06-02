@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}SCT Camera{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=security-console-2">
+</head>
+<body data-page="{{ page_id | default('dashboard') }}">
+  <div class="app-shell">
+    <aside class="side-nav">
+      <a class="brand" href="/">
+        <span class="brand-mark">SEC</span>
+        <span>
+          <strong>SCT Camera</strong>
+          <small>Security Console</small>
+        </span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a class="{% if page_id == 'dashboard' %}active{% endif %}" href="/">
+          <span class="nav-icon">01</span>
+          Live Wall
+        </a>
+        <a class="{% if page_id == 'settings' %}active{% endif %}" href="/settings">
+          <span class="nav-icon">02</span>
+          Control Room
+        </a>
+      </nav>
+      <div class="nav-footer">
+        <span class="status-dot online"></span>
+        <span>Realtime monitoring</span>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="top-bar">
+        <div>
+          <p class="eyebrow">{% block eyebrow %}SCT Camera{% endblock %}</p>
+          <h1>{% block heading %}Dashboard{% endblock %}</h1>
+        </div>
+        <div class="top-actions">
+          {% block top_actions %}{% endblock %}
+        </div>
+      </header>
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+  <script src="/static/js/main.js?v=security-console-2"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
