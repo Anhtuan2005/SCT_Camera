@@ -49,6 +49,19 @@
     return node?.getAttribute("aria-checked") !== "true";
   }
 
+  function selectedNotificationChannels(root) {
+    return Array.from(root.querySelectorAll('input[name="notification_channels"]:checked, [data-camera-channel]:checked'))
+      .map((input) => input.value)
+      .filter((value, index, items) => value && items.indexOf(value) === index);
+  }
+
+  function cameraHasChannel(camera, channel) {
+    const channels = Array.isArray(camera.notification_channels) && camera.notification_channels.length
+      ? camera.notification_channels
+      : ["telegram"];
+    return channels.includes(channel);
+  }
+
   async function refreshCameras() {
     const cameras = await request("/api/cameras");
     updateDashboard(cameras);
@@ -135,10 +148,21 @@
     list.innerHTML = cameras
       .map(
         (camera) => `
-        <div class="camera-list-row" data-settings-camera="${escapeHtml(camera.camera_id)}">
+        <div class="camera-list-row" data-settings-camera="${escapeHtml(camera.camera_id)}"
+             data-camera-name="${escapeHtml(camera.name)}"
+             data-camera-source="${escapeHtml(camera.source)}"
+             data-camera-enabled="${camera.enabled !== false ? "true" : "false"}">
           <div>
             <strong>${escapeHtml(camera.name)}</strong>
             <span class="mono">${escapeHtml(camera.source)}</span>
+          </div>
+          <div class="camera-channel-options" data-camera-channels="${escapeHtml(camera.camera_id)}">
+            <label class="checkbox-row"><input data-camera-channel="telegram" type="checkbox" value="telegram" ${
+              cameraHasChannel(camera, "telegram") ? "checked" : ""
+            }>Telegram</label>
+            <label class="checkbox-row"><input data-camera-channel="discord" type="checkbox" value="discord" ${
+              cameraHasChannel(camera, "discord") ? "checked" : ""
+            }>Discord</label>
           </div>
           <span class="status-badge ${escapeHtml(camera.status)}">${escapeHtml(camera.status)}</span>
           <a class="button small" href="/camera/${encodeURIComponent(camera.camera_id)}">Open</a>
@@ -236,6 +260,24 @@
       toast("Settings saved", "Telegram configuration updated");
     });
 
+    const discordForm = document.getElementById("discordForm");
+    discordForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(discordForm);
+      await request("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          discord: {
+            webhook_url: form.get("webhook_url"),
+            username: form.get("username") || "SCT Camera",
+            enabled: form.get("enabled") === "on",
+            max_retries: Number(form.get("max_retries") || 3),
+          },
+        }),
+      });
+      toast("Settings saved", "Discord configuration updated");
+    });
+
     const thresholdForm = document.getElementById("thresholdForm");
     thresholdForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -308,16 +350,23 @@
       event.preventDefault();
       const form = new FormData(cameraForm);
       const sourceValue = String(form.get("source") || "").trim();
+      const notificationChannels = selectedNotificationChannels(cameraForm);
+      if (!notificationChannels.length) {
+        toast("Alert channels", "Select Telegram or Discord");
+        return;
+      }
       await request("/api/cameras", {
         method: "POST",
         body: JSON.stringify({
           name: form.get("name"),
           source: /^\d+$/.test(sourceValue) ? Number(sourceValue) : sourceValue,
           enabled: form.get("enabled") === "on",
+          notification_channels: notificationChannels,
         }),
       });
       cameraForm.reset();
       cameraForm.querySelector('[name="enabled"]').checked = true;
+      cameraForm.querySelector('[name="notification_channels"][value="telegram"]').checked = true;
       await refreshCameras();
       toast("Camera saved", "Camera list updated");
     });
@@ -330,9 +379,40 @@
       toast("Camera deleted", button.dataset.deleteCamera);
     });
 
+    document.getElementById("settingsCameraList")?.addEventListener("change", async (event) => {
+      const input = event.target.closest("[data-camera-channel]");
+      if (!input) return;
+      const row = input.closest("[data-settings-camera]");
+      if (!row) return;
+      const notificationChannels = selectedNotificationChannels(row);
+      if (!notificationChannels.length) {
+        input.checked = true;
+        toast("Alert channels", "Each camera needs at least one channel");
+        return;
+      }
+      const sourceValue = String(row.dataset.cameraSource || "").trim();
+      await request("/api/cameras", {
+        method: "POST",
+        body: JSON.stringify({
+          camera_id: row.dataset.settingsCamera,
+          name: row.dataset.cameraName || row.dataset.settingsCamera,
+          source: /^\d+$/.test(sourceValue) ? Number(sourceValue) : sourceValue,
+          enabled: row.dataset.cameraEnabled !== "false",
+          notification_channels: notificationChannels,
+        }),
+      });
+      await refreshCameras();
+      toast("Camera saved", "Alert channels updated");
+    });
+
     document.getElementById("testTelegramButton")?.addEventListener("click", async () => {
       const result = await request("/api/settings/telegram/test", { method: "POST", body: "{}" });
       toast("Telegram test", result.sent ? "Message sent" : "Send skipped or failed");
+    });
+
+    document.getElementById("testDiscordButton")?.addEventListener("click", async () => {
+      const result = await request("/api/settings/discord/test", { method: "POST", body: "{}" });
+      toast("Discord test", result.sent ? "Message sent" : "Send skipped or failed");
     });
   }
 

@@ -123,3 +123,11 @@ YOLO model sẽ tự tải lần đầu từ Ultralytics hub. Nếu môi trườ
 - RTSP URL có username/password được truyền trực tiếp cho OpenCV.
 - Ctrl+C sẽ kích hoạt FastAPI shutdown, dừng pipeline threads, release camera và dừng alert worker.
 - Tất cả logs ghi ra console và `logs/sct_camera.log`.
+
+## Video files and Discord alerts
+
+- Camera `source` can be a webcam index, a local video path, or an RTSP URL.
+- To replay a local video, set `source` in `config/cameras/*.yaml` to a path such as `E:\videos\sample.mp4`, or add it from `/settings`.
+- Discord alerts use `discord.webhook_url` in `config/settings.yaml`.
+- Each camera can choose `notification_channels`: `telegram`, `discord`, or both.
+- Use `POST /api/settings/discord/test` or the Discord Test button in `/settings` to verify delivery.

@@ -17,6 +17,7 @@ class CameraPayload(BaseModel):
     name: str
     source: str | int
     enabled: bool = True
+    notification_channels: list[str] | None = None
 
 
 class CameraEnabledPayload(BaseModel):
@@ -140,6 +141,13 @@ async def delete_line(request: Request, cam_id: str, line_id: str) -> dict[str, 
 async def test_telegram(request: Request) -> dict[str, bool]:
     """Send a Telegram test message."""
     sent = await request.app.state.runtime.alert_manager.send_test_message()
+    return {"sent": sent}
+
+
+@router.post("/settings/discord/test")
+async def test_discord(request: Request) -> dict[str, bool]:
+    """Send a Discord test message."""
+    sent = await request.app.state.runtime.alert_manager.send_discord_test_message()
     return {"sent": sent}
 
 

@@ -26,10 +26,27 @@ from web.routes import config_api, dashboard, stream
 
 logger = get_logger(__name__)
 
+ALERT_CHANNELS = {"telegram", "discord"}
+
 
 def _safe_id(value: str) -> str:
     value = re.sub(r"[^a-zA-Z0-9_-]+", "_", value.strip())
     return value.strip("_") or f"id_{uuid.uuid4().hex[:8]}"
+
+
+def _normalize_notification_channels(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_items = [value]
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = ["telegram"]
+    channels = []
+    for item in raw_items:
+        channel = str(item).strip().lower()
+        if channel in ALERT_CHANNELS and channel not in channels:
+            channels.append(channel)
+    return channels or ["telegram"]
 
 
 def load_settings(path: Path) -> dict[str, Any]:
@@ -58,6 +75,7 @@ def load_camera_configs(cameras_dir: Path) -> dict[str, dict[str, Any]]:
         data["camera_id"] = camera_id
         data.setdefault("name", camera_id)
         data.setdefault("enabled", False)
+        data["notification_channels"] = _normalize_notification_channels(data.get("notification_channels"))
         if not isinstance(data.get("zones", []), list):
             logger.warning("Camera %s has invalid zones; using an empty list", camera_id)
             data["zones"] = []
@@ -295,6 +313,9 @@ class RuntimeState:
                 "name": str(payload.get("name") or existing.get("name") or camera_id),
                 "source": payload.get("source", existing.get("source", 0)),
                 "enabled": bool(payload.get("enabled", existing.get("enabled", True))),
+                "notification_channels": _normalize_notification_channels(
+                    payload.get("notification_channels", existing.get("notification_channels"))
+                ),
                 "zones": payload.get("zones", existing.get("zones", [])),
                 "lines": payload.get("lines", existing.get("lines", [])),
             }

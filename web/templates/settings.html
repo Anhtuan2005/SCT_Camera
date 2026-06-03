@@ -26,6 +26,10 @@
         <form id="cameraForm" class="inline-form camera-form">
           <input name="name" type="text" placeholder="Camera name" required>
           <input name="source" type="text" placeholder="0, video.mp4, or rtsp://..." required>
+          <fieldset class="channel-options" aria-label="Alert channels">
+            <label class="checkbox-row"><input name="notification_channels" type="checkbox" value="telegram" checked>Telegram</label>
+            <label class="checkbox-row"><input name="notification_channels" type="checkbox" value="discord">Discord</label>
+          </fieldset>
           <label class="checkbox-row">
             <input name="enabled" type="checkbox" checked>
             Enabled
@@ -34,10 +38,19 @@
         </form>
         <div id="settingsCameraList" class="camera-list">
           {% for camera in cameras %}
-            <div class="camera-list-row" data-settings-camera="{{ camera.camera_id }}">
+            <div class="camera-list-row"
+                 data-settings-camera="{{ camera.camera_id }}"
+                 data-camera-name="{{ camera.name }}"
+                 data-camera-source="{{ camera.source }}"
+                 data-camera-enabled="{{ 'true' if camera.enabled != false else 'false' }}">
               <div>
                 <strong>{{ camera.name }}</strong>
                 <span class="mono">{{ camera.source }}</span>
+              </div>
+              <div class="camera-channel-options" data-camera-channels="{{ camera.camera_id }}">
+                {% set channels = camera.notification_channels | default(['telegram']) %}
+                <label class="checkbox-row"><input data-camera-channel="telegram" type="checkbox" value="telegram" {% if 'telegram' in channels %}checked{% endif %}>Telegram</label>
+                <label class="checkbox-row"><input data-camera-channel="discord" type="checkbox" value="discord" {% if 'discord' in channels %}checked{% endif %}>Discord</label>
               </div>
               <span class="status-badge {{ camera.status }}">{{ camera.status }}</span>
               <a class="button small" href="/camera/{{ camera.camera_id }}">Open</a>
@@ -249,6 +262,35 @@
           </label>
         </div>
         <button class="button primary full" type="submit">Save Telegram</button>
+      </form>
+
+      <form class="panel wide settings-section" id="discordForm">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Notifications</p>
+            <h2>Discord Alerts</h2>
+          </div>
+          <button class="button small" type="button" id="testDiscordButton">Test</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            Webhook URL
+            <input name="webhook_url" type="password" value="{{ settings.discord.webhook_url | default('') }}">
+          </label>
+          <label>
+            Username
+            <input name="username" type="text" value="{{ settings.discord.username | default('SCT Camera') }}">
+          </label>
+          <label class="checkbox-row">
+            <input name="enabled" type="checkbox" {% if settings.discord.enabled | default(false) %}checked{% endif %}>
+            Enabled
+          </label>
+          <label>
+            Max retries
+            <input name="max_retries" type="number" min="1" value="{{ settings.discord.max_retries | default(3) }}">
+          </label>
+        </div>
+        <button class="button primary full" type="submit">Save Discord</button>
       </form>
     </div>
   </section>

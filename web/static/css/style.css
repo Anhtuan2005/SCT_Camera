@@ -698,9 +698,36 @@ select {
   margin-bottom: 0;
 }
 
+.channel-options,
+.camera-channel-options {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.channel-options {
+  min-height: 40px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.camera-channel-options {
+  padding: 4px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--field);
+}
+
+.channel-options .checkbox-row,
+.camera-channel-options .checkbox-row {
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
 .inline-form {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(240px, 1.6fr) auto auto;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(240px, 1.6fr) minmax(190px, auto) auto auto;
   gap: 10px;
   align-items: start;
   margin-bottom: 14px;
@@ -1063,6 +1090,11 @@ label.toggle-label {
 
   .inline-form {
     grid-template-columns: 1fr;
+  }
+
+  .channel-options,
+  .camera-channel-options {
+    flex-wrap: wrap;
   }
 
   .camera-list-row {

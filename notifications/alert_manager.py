@@ -8,6 +8,7 @@ from collections import defaultdict, deque
 from datetime import datetime
 from typing import Any
 
+from notifications.discord_bot import DiscordBot
 from notifications.siren import SirenController
 from notifications.telegram_bot import TelegramBot
 from utils.logger import get_logger
@@ -16,12 +17,13 @@ logger = get_logger(__name__)
 
 
 class AlertManager:
-    """Manage alert cooldowns and async Telegram delivery."""
+    """Manage alert cooldowns, delivery, and history."""
 
     def __init__(self, settings: dict[str, Any]) -> None:
         telegram = settings.get("telegram", {})
         self.cooldown_seconds = float(telegram.get("cooldown_seconds", 10))
         self.bot = TelegramBot(settings)
+        self.discord = DiscordBot(settings)
         self.siren = SirenController(settings)
         self.queue: asyncio.Queue[dict[str, Any]] | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
@@ -38,7 +40,7 @@ class AlertManager:
         self.loop = asyncio.get_running_loop()
         self.queue = asyncio.Queue(maxsize=1000)
         self._running = True
-        self._task = asyncio.create_task(self._worker(), name="telegram-alert-worker")
+        self._task = asyncio.create_task(self._worker(), name="alert-worker")
         logger.info("Alert manager started")
 
     async def stop(self) -> None:
@@ -80,6 +82,11 @@ class AlertManager:
         now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
         return await self.bot.send_text(f"✅ SCT Camera test alert\nTime: {now}")
 
+    async def send_discord_test_message(self) -> bool:
+        """Send a Discord test message using current settings."""
+        now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        return await self.discord.send_text(f"SCT Camera test alert\nTime: {now}")
+
     def get_recent(self, camera_id: str, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         """Return recent alert history for one camera."""
         with self._history_lock:
@@ -88,10 +95,11 @@ class AlertManager:
         return items[offset : offset + limit]
 
     def update_settings(self, settings: dict[str, Any]) -> None:
-        """Apply new Telegram settings without restarting FastAPI."""
+        """Apply new alert settings without restarting FastAPI."""
         telegram = settings.get("telegram", {})
         self.cooldown_seconds = float(telegram.get("cooldown_seconds", self.cooldown_seconds))
         self.bot = TelegramBot(settings)
+        self.discord = DiscordBot(settings)
         self.siren = SirenController(settings)
 
     async def _worker(self) -> None:
@@ -123,19 +131,38 @@ class AlertManager:
                 cooldown_key[2],
             )
         else:
-            sent = await self.bot.send_alert(alert)
+            channels = self._channels_for_alert(alert)
+            telegram_sent, discord_sent = await asyncio.gather(
+                self.bot.send_alert(alert) if "telegram" in channels else asyncio.sleep(0, result=False),
+                self.discord.send_alert(alert) if "discord" in channels else asyncio.sleep(0, result=False),
+            )
             siren_triggered = await self.siren.trigger(alert) if bool(alert.get("siren")) else False
             record["suppressed"] = False
-            record["sent"] = sent
+            record["sent"] = telegram_sent or discord_sent
+            record["telegram_sent"] = telegram_sent
+            record["discord_sent"] = discord_sent
             record["siren_triggered"] = siren_triggered
-            record["message"] = "Sent to Telegram" if sent else "Telegram send skipped or failed"
+            sent_channels = [
+                name
+                for name, delivered in (
+                    ("Telegram", telegram_sent),
+                    ("Discord", discord_sent),
+                )
+                if delivered
+            ]
+            record["message"] = (
+                f"Sent to {', '.join(sent_channels)}"
+                if sent_channels
+                else "Alert send skipped or failed"
+            )
             self._last_sent_at[cooldown_key] = now
             logger.info(
-                "Alert processed: camera=%s type=%s target=%s sent=%s",
+                "Alert processed: camera=%s type=%s target=%s telegram=%s discord=%s",
                 cooldown_key[0],
                 cooldown_key[1],
                 cooldown_key[2],
-                sent,
+                telegram_sent,
+                discord_sent,
             )
 
         self._append_history(record)
@@ -144,6 +171,19 @@ class AlertManager:
         camera_id = str(record.get("camera_id", "unknown"))
         with self._history_lock:
             self._history[camera_id].append(record)
+
+    @staticmethod
+    def _channels_for_alert(alert: dict[str, Any]) -> set[str]:
+        raw_channels = alert.get("notification_channels", ["telegram"])
+        if isinstance(raw_channels, str):
+            items = [raw_channels]
+        elif isinstance(raw_channels, list):
+            items = raw_channels
+        else:
+            items = ["telegram"]
+        channels = {str(item).strip().lower() for item in items}
+        channels &= {"telegram", "discord"}
+        return channels or {"telegram"}
 
     @staticmethod
     def _cooldown_key(alert: dict[str, Any]) -> tuple[str, str, str]:

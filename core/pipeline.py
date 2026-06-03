@@ -182,6 +182,7 @@ class CameraPipeline:
                         stranger_watch_states,
                     )
                     for alert in alerts:
+                        alert["notification_channels"] = list(config.get("notification_channels", ["telegram"]))
                         alert["frame"] = annotated.copy()
                         self.alert_manager.enqueue_threadsafe(alert)
 
