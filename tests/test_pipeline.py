@@ -4,6 +4,7 @@ from threading import RLock
 import numpy as np
 
 from core.pipeline import CameraPipeline, _AnalysisSnapshot
+from core.tracker import TrackedObject
 
 
 class PipelineCadenceTests(unittest.TestCase):
@@ -25,8 +26,18 @@ class PipelineCadenceTests(unittest.TestCase):
         pipeline._analysis_generation = 0
         calls = []
 
-        def analyze(frame, config, camera_id, token, generation):
-            calls.append((frame.shape, config["camera_id"], camera_id, token, generation))
+        def analyze(frame, config, camera_id, token, generation, frame_capture_time, frame_index):
+            calls.append(
+                (
+                    frame.shape,
+                    config["camera_id"],
+                    camera_id,
+                    token,
+                    generation,
+                    frame_capture_time,
+                    frame_index,
+                )
+            )
             with pipeline._analysis_state_lock:
                 if pipeline._analysis_token == token:
                     pipeline._analysis_inflight = False
@@ -38,32 +49,114 @@ class PipelineCadenceTests(unittest.TestCase):
             {"camera_id": "cam"},
             "cam",
             42.0,
+            1,
         )
 
         self.assertTrue(completed)
-        self.assertEqual([((4, 5, 3), "cam", "cam", 1, 0)], calls)
+        self.assertEqual([((4, 5, 3), "cam", "cam", 1, 0, 42.0, 1)], calls)
         self.assertFalse(pipeline._analysis_inflight)
         self.assertEqual(42.0, pipeline._last_analysis_started_at)
 
-    def test_display_frame_uses_analyzed_frame_to_keep_boxes_aligned(self) -> None:
+    def test_inflight_analysis_timeout_allows_new_analysis(self) -> None:
+        pipeline = CameraPipeline.__new__(CameraPipeline)
+        pipeline._analysis_state_lock = RLock()
+        pipeline._analysis_inflight = True
+        pipeline._last_analysis_started_at = 100.0
+        pipeline._analysis_token = 0
+        pipeline._analysis_generation = 0
+        pipeline.frame_skip = 1
+        pipeline.ai_max_fps = 10
+        pipeline.analysis_timeout = 0.2
+        calls = []
+
+        def analyze(frame, config, camera_id, token, generation, frame_capture_time, frame_index):
+            calls.append((token, frame_capture_time, frame_index))
+            with pipeline._analysis_state_lock:
+                if pipeline._analysis_token == token:
+                    pipeline._analysis_inflight = False
+
+        pipeline._analyze_frame = analyze
+
+        submitted = pipeline._submit_analysis_if_due(
+            np.zeros((4, 5, 3), dtype=np.uint8),
+            {"camera_id": "cam"},
+            "cam",
+            2,
+            100.21,
+        )
+        pipeline._analysis_thread.join(timeout=1.0)
+
+        self.assertTrue(submitted)
+        self.assertEqual([(2, 100.21, 2)], calls)
+        self.assertFalse(pipeline._analysis_inflight)
+
+    def test_display_frame_suppresses_stale_analysis_objects(self) -> None:
         current_frame = np.zeros((8, 8, 3), dtype=np.uint8)
         analyzed_frame = np.full((8, 8, 3), 200, dtype=np.uint8)
+        tracked = TrackedObject(
+            track_id=7,
+            bbox_xyxy=(1.0, 1.0, 6.0, 6.0),
+            class_id=0,
+            class_name="person",
+            confidence=0.9,
+            center_history=[],
+        )
         snapshot = _AnalysisSnapshot(
-            objects=[],
+            objects=[tracked],
             counters={},
             person_timer_states={},
             new_alert_count=0,
             annotated_frame=analyzed_frame,
             result_id=1,
+            frame_capture_time=100.0,
+            frame_index=4,
         )
 
-        displayed = CameraPipeline._display_frame_for_snapshot(
+        display = CameraPipeline._display_frame_for_snapshot(
             current_frame,
             {"camera_id": "cam", "name": "Camera", "zones": [], "lines": []},
             snapshot,
+            100.6,
+            500.0,
         )
 
-        np.testing.assert_array_equal(analyzed_frame, displayed)
+        self.assertFalse(display.used_analysis)
+        self.assertTrue(display.stale_warning)
+        self.assertEqual(0, display.object_count)
+        self.assertAlmostEqual(600.0, display.staleness_ms)
+
+    def test_display_frame_uses_fresh_analysis_objects(self) -> None:
+        tracked = TrackedObject(
+            track_id=7,
+            bbox_xyxy=(1.0, 1.0, 6.0, 6.0),
+            class_id=0,
+            class_name="person",
+            confidence=0.9,
+            center_history=[],
+        )
+        snapshot = _AnalysisSnapshot(
+            objects=[tracked],
+            counters={},
+            person_timer_states={},
+            new_alert_count=0,
+            annotated_frame=np.zeros((8, 8, 3), dtype=np.uint8),
+            result_id=1,
+            frame_capture_time=100.0,
+            frame_index=4,
+        )
+
+        display = CameraPipeline._display_frame_for_snapshot(
+            np.zeros((8, 8, 3), dtype=np.uint8),
+            {"camera_id": "cam", "name": "Camera", "zones": [], "lines": []},
+            snapshot,
+            100.2,
+            500.0,
+        )
+
+        self.assertTrue(display.used_analysis)
+        self.assertFalse(display.stale_warning)
+        self.assertEqual(1, display.object_count)
+        self.assertAlmostEqual(200.0, display.staleness_ms)
 
     def test_publish_snapshot_only_when_analysis_result_changes(self) -> None:
         pipeline = CameraPipeline.__new__(CameraPipeline)

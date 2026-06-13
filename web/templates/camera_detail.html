@@ -3,6 +3,9 @@
 {% block eyebrow %}Camera Detail{% endblock %}
 {% block heading %}{{ camera.name if camera else cam_id }}{% endblock %}
 {% block top_actions %}
+  {% if camera %}
+  <a class="button" href="/settings?camera={{ camera.camera_id }}#cameras">Configure</a>
+  {% endif %}
   <a class="button" href="/">Back</a>
 {% endblock %}
 
@@ -14,6 +17,7 @@
         <span class="status-badge {{ camera.status }}" data-detail-status>{{ camera.status }}</span>
         <span class="toolbar-stat"><strong data-detail-objects>{{ camera.object_count }}</strong> objects</span>
         <span class="toolbar-stat"><strong data-detail-fps>{{ camera.fps | default(0.0) }}</strong> fps</span>
+        <span class="toolbar-stat"><strong data-detail-ai-latency>{{ camera.ai_latency_ms | default(0) }} ms</strong> AI</span>
         <span class="toolbar-stat"><strong data-detail-alerts>{{ camera.alert_count }}</strong> alerts</span>
         <div class="camera-state-toggle-group">
           <button class="camera-switch camera-state-toggle{% if camera.enabled %} active{% endif %}" type="button" id="detailEnabledToggleLabel" data-camera-id="{{ camera.camera_id }}" data-camera-enabled-toggle="{{ camera.camera_id }}" role="switch" aria-checked="{{ 'true' if camera.enabled else 'false' }}">

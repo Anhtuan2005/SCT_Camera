@@ -7,6 +7,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,12 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+STALE_FRAME_WARNING_MS = 500.0
+FPS_MONITOR_INTERVAL_SECONDS = 5.0
+LOW_FPS_THRESHOLD = 5.0
+LOW_FPS_WARNING_SECONDS = 10.0
+FPS_SPIKE_THRESHOLD = 500.0
+
 
 @dataclass(frozen=True)
 class _AnalysisSnapshot:
@@ -38,6 +45,17 @@ class _AnalysisSnapshot:
     new_alert_count: int
     annotated_frame: Any | None
     result_id: int
+    frame_capture_time: float = 0.0
+    frame_index: int = 0
+
+
+@dataclass(frozen=True)
+class _DisplayFrame:
+    frame: Any
+    object_count: int
+    staleness_ms: float
+    used_analysis: bool
+    stale_warning: bool
 
 
 class CameraPipeline:
@@ -75,12 +93,26 @@ class CameraPipeline:
         self._latest_person_timer_states: dict[int, dict[str, Any]] = {}
         self._latest_annotated_frame: Any | None = None
         self._latest_analysis_result_id = 0
+        self._latest_analysis_capture_time = 0.0
+        self._latest_analysis_frame_index = 0
         self._published_analysis_result_id = 0
         self._pending_alert_count = 0
+        self._previous_track_ids: set[int] = set()
+        self._last_fps_sample_at = 0.0
+        self._low_fps_started_at: float | None = None
+        self._last_stale_warning_result_id = 0
 
         pipeline_settings = settings.get("pipeline", {})
         self.frame_skip = max(1, int(pipeline_settings.get("frame_skip", 2)))
         self.ai_max_fps = max(0.0, float(pipeline_settings.get("ai_max_fps", 10)))
+        self.analysis_timeout = max(
+            1.0,
+            float(pipeline_settings.get("analysis_timeout_min_seconds", 5.0)),
+        )
+        self.analysis_stale_after_ms = max(
+            0.0,
+            float(pipeline_settings.get("analysis_stale_after_ms", STALE_FRAME_WARNING_MS)),
+        )
         self.reconnect_delay = float(pipeline_settings.get("reconnect_delay", 5))
         self.max_reconnect_attempts = int(pipeline_settings.get("max_reconnect_attempts", 10))
         self.processing_max_height = int(
@@ -168,7 +200,7 @@ class CameraPipeline:
                     ok, frame = capture.read()
                     if not ok or frame is None:
                         if is_video_file and self.loop_video_files:
-                            capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                            self._reset_looping_video_capture(capture)
                             self.tracker.reset()
                             self._reset_analysis_state()
                             frame_index = 0
@@ -184,24 +216,42 @@ class CameraPipeline:
                     frame_index += 1
                     now = time.monotonic()
                     if frame_index == 1:
-                        self._run_analysis_sync(frame, config, camera_id, now)
+                        self._run_analysis_sync(frame, config, camera_id, now, frame_index)
                     else:
                         self._submit_analysis_if_due(frame, config, camera_id, frame_index, now)
                     snapshot = self._analysis_snapshot()
-                    if self._should_publish_snapshot(snapshot):
-                        annotated = self._display_frame_for_snapshot(
-                            frame,
-                            config,
-                            snapshot,
+                    display = self._display_frame_for_snapshot(
+                        frame,
+                        config,
+                        snapshot,
+                        now,
+                        self.analysis_stale_after_ms,
+                    )
+                    if (
+                        display.stale_warning
+                        and snapshot.result_id != self._last_stale_warning_result_id
+                    ):
+                        logger.warning(
+                            (
+                                "Stale analysis suppressed: camera_id=%s timestamp=%s "
+                                "staleness_ms=%.0f analysis_frame_index=%d current_frame_index=%d"
+                            ),
+                            camera_id,
+                            self._log_timestamp(),
+                            display.staleness_ms,
+                            snapshot.frame_index,
+                            frame_index,
                         )
-                        self.frame_buffer.update(
-                            annotated,
-                            object_count=len(snapshot.objects),
-                            new_alert_count=snapshot.new_alert_count,
-                            status="online",
-                        )
-                        if snapshot.annotated_frame is not None:
-                            self._published_analysis_result_id = snapshot.result_id
+                        self._last_stale_warning_result_id = snapshot.result_id
+                    self.frame_buffer.update(
+                        display.frame,
+                        object_count=display.object_count,
+                        new_alert_count=snapshot.new_alert_count,
+                        status="online",
+                        staleness_ms=display.staleness_ms,
+                    )
+                    self._published_analysis_result_id = snapshot.result_id
+                    self._monitor_fps_health(camera_id, now)
 
                     if frame_interval > 0:
                         next_frame_at += frame_interval
@@ -227,14 +277,21 @@ class CameraPipeline:
     def _reset_analysis_state(self) -> None:
         with self._analysis_state_lock:
             self._analysis_generation += 1
+            self._analysis_token += 1
+            self._analysis_inflight = False
             self._last_analysis_started_at = 0.0
             self._latest_objects = []
             self._latest_counters = {}
             self._latest_person_timer_states = {}
             self._latest_annotated_frame = None
             self._latest_analysis_result_id = 0
+            self._latest_analysis_capture_time = 0.0
+            self._latest_analysis_frame_index = 0
             self._published_analysis_result_id = 0
             self._pending_alert_count = 0
+            self._previous_track_ids = set()
+            self._low_fps_started_at = None
+            self._last_stale_warning_result_id = 0
 
     def _submit_analysis_if_due(
         self,
@@ -246,7 +303,16 @@ class CameraPipeline:
     ) -> bool:
         with self._analysis_state_lock:
             if self._analysis_inflight:
-                return False
+                elapsed = now - self._last_analysis_started_at
+                if elapsed < self.analysis_timeout:
+                    return False
+                logger.warning(
+                    "Camera %s: analysis thread timed out after %.1fs - forcing reset",
+                    camera_id,
+                    elapsed,
+                )
+                self._analysis_inflight = False
+                self._analysis_token += 1
             if not self._analysis_due(
                 frame_index,
                 self.frame_skip,
@@ -263,7 +329,15 @@ class CameraPipeline:
 
         thread = threading.Thread(
             target=self._analyze_frame,
-            args=(frame.copy(), copy.deepcopy(config), camera_id, token, generation),
+            args=(
+                frame.copy(),
+                copy.deepcopy(config),
+                camera_id,
+                token,
+                generation,
+                now,
+                frame_index,
+            ),
             name=f"camera-analysis-{camera_id}",
             daemon=True,
         )
@@ -277,6 +351,7 @@ class CameraPipeline:
         config: dict[str, Any],
         camera_id: str,
         now: float,
+        frame_index: int,
     ) -> bool:
         with self._analysis_state_lock:
             if self._analysis_inflight:
@@ -287,7 +362,15 @@ class CameraPipeline:
             token = self._analysis_token
             generation = self._analysis_generation
 
-        self._analyze_frame(frame.copy(), copy.deepcopy(config), camera_id, token, generation)
+        self._analyze_frame(
+            frame.copy(),
+            copy.deepcopy(config),
+            camera_id,
+            token,
+            generation,
+            now,
+            frame_index,
+        )
         return True
 
     @staticmethod
@@ -315,6 +398,8 @@ class CameraPipeline:
                 new_alert_count=pending_alert_count,
                 annotated_frame=self._latest_annotated_frame,
                 result_id=self._latest_analysis_result_id,
+                frame_capture_time=self._latest_analysis_capture_time,
+                frame_index=self._latest_analysis_frame_index,
             )
 
     def _should_publish_snapshot(self, snapshot: _AnalysisSnapshot) -> bool:
@@ -328,15 +413,31 @@ class CameraPipeline:
         frame: Any,
         config: dict[str, Any],
         snapshot: _AnalysisSnapshot,
-    ) -> Any:
-        if snapshot.annotated_frame is not None:
-            return snapshot.annotated_frame
-        return draw_annotations(
+        current_frame_capture_time: float,
+        stale_after_ms: float,
+    ) -> _DisplayFrame:
+        has_analysis = snapshot.result_id > 0 and snapshot.frame_capture_time > 0
+        staleness_ms = 0.0
+        if has_analysis:
+            staleness_ms = max(
+                0.0,
+                (current_frame_capture_time - snapshot.frame_capture_time) * 1000.0,
+            )
+        use_analysis = has_analysis and staleness_ms <= stale_after_ms
+        objects = snapshot.objects if use_analysis else []
+        annotated = draw_annotations(
             frame,
-            [],
+            objects,
             config,
             snapshot.counters,
             snapshot.person_timer_states,
+        )
+        return _DisplayFrame(
+            frame=annotated,
+            object_count=len(objects),
+            staleness_ms=staleness_ms,
+            used_analysis=use_analysis,
+            stale_warning=has_analysis and staleness_ms > STALE_FRAME_WARNING_MS,
         )
 
     def _analyze_frame(
@@ -346,12 +447,22 @@ class CameraPipeline:
         camera_id: str,
         token: int,
         generation: int,
+        frame_capture_time: float,
+        frame_index: int,
     ) -> None:
         try:
             behavior_engine = self.behavior_engine
             t0 = time.monotonic()
             objects = self.tracker.track(frame)
             t1 = time.monotonic()
+            if not self._monitor_track_stability(
+                camera_id,
+                frame_index,
+                objects,
+                generation,
+                token,
+            ):
+                return
             if self._pose_needed(config, self.settings):
                 objects = self.pose_estimator.attach(frame, objects)
             t2 = time.monotonic()
@@ -359,25 +470,26 @@ class CameraPipeline:
             t3 = time.monotonic()
             alerts = behavior_engine.analyze(objects, config, frame.shape)
             t4 = time.monotonic()
+            total_ms = (t4 - t0) * 1000
             counters = behavior_engine.get_counters(camera_id)
             person_timer_states = behavior_engine.get_person_timer_states(camera_id)
             logger.debug(
                 (
-                    "Analysis %s: track=%.0fms pose=%.0fms identity=%.0fms "
-                    "behavior=%.0fms total=%.0fms objs=%d alerts=%d"
+                    "Analysis %s: track_ms=%.0f pose_ms=%.0f identity_ms=%.0f "
+                    "behavior_ms=%.0f total_ms=%.0f objs=%d alerts=%d"
                 ),
                 camera_id,
                 (t1 - t0) * 1000,
                 (t2 - t1) * 1000,
                 (t3 - t2) * 1000,
                 (t4 - t3) * 1000,
-                (t4 - t0) * 1000,
+                total_ms,
                 len(objects),
                 len(alerts),
             )
 
             with self._analysis_state_lock:
-                if generation != self._analysis_generation:
+                if generation != self._analysis_generation or token != self._analysis_token:
                     return
 
             annotated = draw_annotations(
@@ -392,15 +504,19 @@ class CameraPipeline:
                 alert["frame"] = annotated.copy()
                 self.alert_manager.enqueue_threadsafe(alert)
 
+            self.frame_buffer.set_ai_latency(total_ms)
             with self._analysis_state_lock:
-                if generation != self._analysis_generation:
+                if generation != self._analysis_generation or token != self._analysis_token:
                     return
                 self._latest_objects = objects
                 self._latest_counters = counters
                 self._latest_person_timer_states = person_timer_states
                 self._latest_annotated_frame = annotated
+                self._latest_analysis_capture_time = frame_capture_time
+                self._latest_analysis_frame_index = frame_index
                 self._latest_analysis_result_id += 1
                 self._pending_alert_count += len(alerts)
+            self._warn_if_analysis_slow(camera_id, total_ms)
         except Exception as exc:
             logger.exception("Camera %s processing error: %s", camera_id, exc)
             self.frame_buffer.set_status("degraded", str(exc))
@@ -531,12 +647,122 @@ class CameraPipeline:
             break
         return dropped
 
+    def _reset_looping_video_capture(self, capture: cv2.VideoCapture) -> None:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        drained = self._drain_capture_buffer(capture, max_frames=1)
+        if drained:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    @staticmethod
+    def _drain_capture_buffer(capture: cv2.VideoCapture, max_frames: int = 1) -> int:
+        drained = 0
+        for _ in range(max(0, int(max_frames))):
+            if not capture.grab():
+                break
+            drained += 1
+        return drained
+
+    def _monitor_fps_health(self, camera_id: str, now: float) -> None:
+        if now - self._last_fps_sample_at < FPS_MONITOR_INTERVAL_SECONDS:
+            return
+        self._last_fps_sample_at = now
+        fps = float(self.frame_buffer.snapshot().fps)
+        timestamp = self._log_timestamp()
+
+        if fps > FPS_SPIKE_THRESHOLD:
+            logger.warning(
+                "FPS spike detected: camera_id=%s timestamp=%s fps=%.1f",
+                camera_id,
+                timestamp,
+                fps,
+            )
+
+        if fps >= LOW_FPS_THRESHOLD:
+            self._low_fps_started_at = None
+            return
+        if self._low_fps_started_at is None:
+            self._low_fps_started_at = now
+            return
+        if now - self._low_fps_started_at >= LOW_FPS_WARNING_SECONDS:
+            logger.warning(
+                (
+                    "Low FPS detected: camera_id=%s timestamp=%s fps=%.1f "
+                    "duration_seconds=%.0f"
+                ),
+                camera_id,
+                timestamp,
+                fps,
+                now - self._low_fps_started_at,
+            )
+
+    def _monitor_track_stability(
+        self,
+        camera_id: str,
+        frame_index: int,
+        objects: list[TrackedObject],
+        generation: int,
+        token: int,
+    ) -> bool:
+        current_track_ids = {obj.track_id for obj in objects}
+        warning: tuple[list[int], int, int] | None = None
+        with self._analysis_state_lock:
+            if generation != self._analysis_generation or token != self._analysis_token:
+                return False
+            previous_track_ids = set(self._previous_track_ids)
+            if previous_track_ids:
+                lost_track_ids = sorted(previous_track_ids - current_track_ids)
+                if len(lost_track_ids) > len(previous_track_ids) * 0.5:
+                    warning = (
+                        lost_track_ids,
+                        len(previous_track_ids),
+                        len(current_track_ids),
+                    )
+            self._previous_track_ids = current_track_ids
+
+        if warning is not None:
+            lost_track_ids, previous_count, current_count = warning
+            logger.warning(
+                (
+                    "Track stability drop: camera_id=%s timestamp=%s "
+                    "frame_index=%d lost_track_ids=%s previous_count=%d current_count=%d"
+                ),
+                camera_id,
+                self._log_timestamp(),
+                frame_index,
+                lost_track_ids,
+                previous_count,
+                current_count,
+            )
+        return True
+
+    def _warn_if_analysis_slow(self, camera_id: str, latency_ms: float) -> None:
+        if self.ai_max_fps <= 0:
+            return
+        threshold_ms = 2.0 * (1000.0 / self.ai_max_fps)
+        if latency_ms <= threshold_ms:
+            return
+        logger.warning(
+            (
+                "Analysis latency high: camera_id=%s timestamp=%s "
+                "total_ms=%.0f threshold_ms=%.0f ai_max_fps=%.1f"
+            ),
+            camera_id,
+            self._log_timestamp(),
+            latency_ms,
+            threshold_ms,
+            self.ai_max_fps,
+        )
+
     @staticmethod
     def _backend_name(capture: cv2.VideoCapture) -> str:
         try:
             return capture.getBackendName()
         except cv2.error:
             return "unknown"
+
+    @staticmethod
+    def _log_timestamp() -> str:
+        return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     def _sleep_interruptible(self, seconds: float) -> None:
         end = time.monotonic() + seconds

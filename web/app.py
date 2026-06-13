@@ -40,7 +40,7 @@ MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
             "dog": 0.12,
             "handbag": 0.12,
             "motorcycle": 0.10,
-            "person": 0.25,
+            "person": 0.20,
             "suitcase": 0.12,
             "truck": 0.15,
         },
@@ -60,23 +60,31 @@ MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
         "match_iou": 0.2,
     },
     "pipeline": {
-        "frame_skip": 1,
-        "ai_max_fps": 6,
+        "frame_skip": 2,
+        "ai_max_fps": 10,
+        "analysis_stale_after_ms": 500,
+        "analysis_timeout_min_seconds": 5.0,
         "processing_max_height": 720,
     },
     "tracking": {
         "track_high_thresh": 0.10,
         "track_low_thresh": 0.05,
         "new_track_thresh": 0.10,
+        "track_buffer": 90,
         "track_grace_frames": 3,
         "duplicate_iou_threshold": 0.85,
         "duplicate_containment_threshold": 0.7,
+        "camera_motion_compensation": {
+            "enabled": False,
+        },
     },
     "identity": {
+        "model": "buffalo_sc",
+        "device": "cuda:0",
         "similarity_threshold": 0.45,
-        "detection_size": 480,
-        "min_face_size": 16,
-        "recognition_interval_frames": 3,
+        "detection_size": 320,
+        "min_face_size": 30,
+        "recognition_interval_frames": 10,
         "unknown_confirmation_attempts": 5,
         "known_memory_frames": 90,
         "known_memory_distance_ratio": 0.18,
@@ -550,6 +558,14 @@ class RuntimeState:
                 pipeline.behavior_engine = self._new_behavior_engine()
                 pipeline.frame_skip = max(1, int(pipeline_settings.get("frame_skip", 2)))
                 pipeline.ai_max_fps = max(0.0, float(pipeline_settings.get("ai_max_fps", 10)))
+                pipeline.analysis_stale_after_ms = max(
+                    0.0,
+                    float(pipeline_settings.get("analysis_stale_after_ms", 500)),
+                )
+                pipeline.analysis_timeout = max(
+                    1.0,
+                    float(pipeline_settings.get("analysis_timeout_min_seconds", 5.0)),
+                )
                 pipeline.reconnect_delay = float(pipeline_settings.get("reconnect_delay", 5))
                 pipeline.max_reconnect_attempts = int(pipeline_settings.get("max_reconnect_attempts", 10))
                 pipeline.processing_max_height = int(
@@ -609,10 +625,28 @@ class RuntimeState:
                     "updated_at": snapshot.updated_at,
                     "error": snapshot.error,
                     "fps": round(snapshot.fps, 1),
+                    "staleness_ms": round(snapshot.staleness_ms, 0),
+                    "ai_latency_ms": round(snapshot.ai_latency_ms, 0),
+                    "analysis_stale_after_ms": float(
+                        self.settings.get("pipeline", {}).get("analysis_stale_after_ms", 500)
+                    ),
                 }
             )
         else:
-            result.update({"status": "offline", "object_count": 0, "alert_count": 0, "error": None, "fps": 0.0})
+            result.update(
+                {
+                    "status": "offline",
+                    "object_count": 0,
+                    "alert_count": 0,
+                    "error": None,
+                    "fps": 0.0,
+                    "staleness_ms": 0.0,
+                    "ai_latency_ms": 0.0,
+                    "analysis_stale_after_ms": float(
+                        self.settings.get("pipeline", {}).get("analysis_stale_after_ms", 500)
+                    ),
+                }
+            )
         result["line_counters"] = self._behavior_engine_for(camera_id).get_counters(camera_id)
         with self._lock:
             result["detection_active"] = camera_id in self.pipelines

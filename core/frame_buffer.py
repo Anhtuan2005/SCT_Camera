@@ -21,6 +21,8 @@ class FrameSnapshot:
     error: str | None
     version: int
     fps: float
+    staleness_ms: float = 0.0
+    ai_latency_ms: float = 0.0
 
 
 class FrameBuffer:
@@ -40,6 +42,8 @@ class FrameBuffer:
         self._error: str | None = None
         self._last_frame_at = 0.0
         self._fps = 0.0
+        self._staleness_ms = 0.0
+        self._ai_latency_ms = 0.0
 
     def update(
         self,
@@ -48,6 +52,7 @@ class FrameBuffer:
         new_alert_count: int = 0,
         status: str = "online",
         error: str | None = None,
+        staleness_ms: float = 0.0,
     ) -> None:
         """Store a new frame and notify stream consumers."""
         jpeg = self._encode_jpeg(frame)
@@ -66,13 +71,21 @@ class FrameBuffer:
             self._last_frame_at = now
             self._updated_at = now
             self._error = error
+            self._staleness_ms = max(0.0, float(staleness_ms))
             self._condition.notify_all()
+
+    def set_ai_latency(self, ms: float) -> None:
+        """Store the latest end-to-end AI analysis latency in milliseconds."""
+        with self._condition:
+            self._ai_latency_ms = max(0.0, float(ms))
 
     def set_status(self, status: str, error: str | None = None) -> None:
         """Update stream status without changing the current frame."""
         with self._condition:
             self._status = status
             self._error = error
+            self._staleness_ms = 0.0
+            self._ai_latency_ms = 0.0
             self._updated_at = time()
             self._version += 1
             self._condition.notify_all()
@@ -88,6 +101,8 @@ class FrameBuffer:
                 error=self._error,
                 version=self._version,
                 fps=self._fps,
+                staleness_ms=self._staleness_ms,
+                ai_latency_ms=self._ai_latency_ms,
             )
 
     def wait_for_jpeg(

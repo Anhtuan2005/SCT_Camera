@@ -18,6 +18,8 @@
   const toastStack = document.getElementById("toastStack");
   const seenAlerts = new Set();
   let firstAlertPoll = true;
+  let editingCameraId = "";
+  let cameraEditPrimed = false;
 
   async function request(url, options = {}) {
     const response = await fetch(url, {
@@ -71,6 +73,11 @@
       .filter((value, index, items) => value && items.indexOf(value) === index);
   }
 
+  function formatAiLatency(camera) {
+    const latency = Number(camera.ai_latency_ms || 0);
+    return `${latency.toFixed(0)} ms`;
+  }
+
   function cameraHasChannel(camera, channel) {
     const channels = Array.isArray(camera.notification_channels) && camera.notification_channels.length
       ? camera.notification_channels
@@ -78,11 +85,48 @@
     return channels.includes(channel);
   }
 
+  function setCameraFormMode(camera) {
+    const form = document.getElementById("cameraForm");
+    if (!form) return;
+    const submit = document.getElementById("cameraSubmitButton");
+    const cancel = document.getElementById("cameraEditCancel");
+    const cameraId = camera ? String(camera.camera_id || "") : "";
+    editingCameraId = cameraId;
+    form.querySelector('[name="camera_id"]').value = cameraId;
+    form.querySelector('[name="name"]').value = camera ? camera.name || "" : "";
+    form.querySelector('[name="source"]').value = camera ? camera.source ?? "" : "";
+    form.querySelector('[name="enabled"]').checked = camera ? camera.enabled !== false : true;
+    for (const input of form.querySelectorAll('input[name="notification_channels"]')) {
+      input.checked = camera ? cameraHasChannel(camera, input.value) : input.value === "telegram";
+    }
+    if (submit) submit.textContent = camera ? "Save" : "Add";
+    if (cancel) cancel.hidden = !camera;
+    updateEditingCameraRow();
+  }
+
+  function updateEditingCameraRow() {
+    document.querySelectorAll("[data-settings-camera]").forEach((row) => {
+      row.classList.toggle("editing", row.dataset.settingsCamera === editingCameraId);
+    });
+  }
+
+  function primeCameraEditFromQuery(cameras) {
+    if (cameraEditPrimed) return;
+    cameraEditPrimed = true;
+    const cameraId = new URLSearchParams(window.location.search).get("camera");
+    if (!cameraId) return;
+    const camera = cameras.find((item) => item.camera_id === cameraId);
+    if (!camera) return;
+    setCameraFormMode(camera);
+    document.getElementById("cameras")?.scrollIntoView({ block: "start" });
+  }
+
   async function refreshCameras() {
     const cameras = await request("/api/cameras");
     updateDashboard(cameras);
     updateDetailHeader(cameras);
     updateSettingsCameraList(cameras);
+    primeCameraEditFromQuery(cameras);
     await pollAlerts(cameras);
   }
 
@@ -107,9 +151,11 @@
       const objectNode = card.querySelector("[data-objects]");
       const alertNode = card.querySelector("[data-alerts]");
       const fpsNode = card.querySelector("[data-fps]");
+      const aiLatencyNode = card.querySelector("[data-ai-latency]");
       if (objectNode) objectNode.textContent = camera.object_count || 0;
       if (alertNode) alertNode.textContent = camera.alert_count || 0;
       if (fpsNode) fpsNode.textContent = Number(camera.fps || 0).toFixed(1);
+      if (aiLatencyNode) aiLatencyNode.textContent = formatAiLatency(camera);
 
       const enabledToggle = card.querySelector(`[data-camera-enabled-toggle="${camera.camera_id}"]`);
       if (enabledToggle && !enabledToggle._userChanging) {
@@ -143,9 +189,11 @@
     const objectNode = document.querySelector("[data-detail-objects]");
     const alertNode = document.querySelector("[data-detail-alerts]");
     const fpsNode = document.querySelector("[data-detail-fps]");
+    const aiLatencyNode = document.querySelector("[data-detail-ai-latency]");
     if (objectNode) objectNode.textContent = camera.object_count || 0;
     if (alertNode) alertNode.textContent = camera.alert_count || 0;
     if (fpsNode) fpsNode.textContent = Number(camera.fps || 0).toFixed(1);
+    if (aiLatencyNode) aiLatencyNode.textContent = formatAiLatency(camera);
 
     const detailEnabledToggle = document.getElementById("detailEnabledToggleLabel");
     if (detailEnabledToggle && !detailEnabledToggle._userChanging) {
@@ -164,7 +212,7 @@
     list.innerHTML = cameras
       .map(
         (camera) => `
-        <div class="camera-list-row" data-settings-camera="${escapeHtml(camera.camera_id)}"
+        <div class="camera-list-row${editingCameraId === camera.camera_id ? " editing" : ""}" data-settings-camera="${escapeHtml(camera.camera_id)}"
              data-camera-name="${escapeHtml(camera.name)}"
              data-camera-source="${escapeHtml(camera.source)}"
              data-camera-enabled="${camera.enabled !== false ? "true" : "false"}">
@@ -182,6 +230,7 @@
           </div>
           <span class="status-badge ${escapeHtml(camera.status)}">${escapeHtml(camera.status)}</span>
           <a class="button small" href="/camera/${encodeURIComponent(camera.camera_id)}">Open</a>
+          <button class="button small" type="button" data-edit-camera="${escapeHtml(camera.camera_id)}">Edit</button>
           <button class="button danger small" type="button" data-delete-camera="${escapeHtml(camera.camera_id)}">Delete</button>
         </div>`
       )
@@ -369,6 +418,7 @@
       event.preventDefault();
       const form = new FormData(cameraForm);
       const sourceValue = String(form.get("source") || "").trim();
+      const cameraId = String(form.get("camera_id") || "").trim();
       const notificationChannels = selectedNotificationChannels(cameraForm);
       if (!notificationChannels.length) {
         toast("Alert channels", "Select Telegram or Discord");
@@ -377,25 +427,43 @@
       await request("/api/cameras", {
         method: "POST",
         body: JSON.stringify({
+          ...(cameraId ? { camera_id: cameraId } : {}),
           name: form.get("name"),
           source: /^\d+$/.test(sourceValue) ? Number(sourceValue) : sourceValue,
           enabled: form.get("enabled") === "on",
           notification_channels: notificationChannels,
         }),
       });
-      cameraForm.reset();
-      cameraForm.querySelector('[name="enabled"]').checked = true;
-      cameraForm.querySelector('[name="notification_channels"][value="telegram"]').checked = true;
+      setCameraFormMode(null);
       await refreshCameras();
       toast("Camera saved", "Camera list updated");
     });
 
     document.getElementById("settingsCameraList")?.addEventListener("click", async (event) => {
+      const editButton = event.target.closest("[data-edit-camera]");
+      if (editButton) {
+        const row = editButton.closest("[data-settings-camera]");
+        if (!row) return;
+        setCameraFormMode({
+          camera_id: row.dataset.settingsCamera,
+          name: row.dataset.cameraName || "",
+          source: row.dataset.cameraSource || "",
+          enabled: row.dataset.cameraEnabled !== "false",
+          notification_channels: selectedNotificationChannels(row),
+        });
+        document.getElementById("cameras")?.scrollIntoView({ block: "start" });
+        return;
+      }
       const button = event.target.closest("[data-delete-camera]");
       if (!button) return;
       await request(`/api/cameras/${encodeURIComponent(button.dataset.deleteCamera)}`, { method: "DELETE" });
+      if (editingCameraId === button.dataset.deleteCamera) setCameraFormMode(null);
       await refreshCameras();
       toast("Camera deleted", button.dataset.deleteCamera);
+    });
+
+    document.getElementById("cameraEditCancel")?.addEventListener("click", () => {
+      setCameraFormMode(null);
     });
 
     document.getElementById("settingsCameraList")?.addEventListener("change", async (event) => {

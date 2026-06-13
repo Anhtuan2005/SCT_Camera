@@ -462,6 +462,7 @@ select:focus-visible,
 }
 
 .metric-row {
+  flex-wrap: wrap;
   padding: 0 13px 13px;
   color: var(--muted);
   font-size: 0.86rem;
@@ -516,7 +517,8 @@ select:focus-visible,
 .camera-toggle-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
   padding: 0 13px 13px;
 }
 
@@ -773,7 +775,7 @@ select {
 
 .inline-form {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(240px, 1.6fr) minmax(190px, auto) auto auto;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(240px, 1.6fr) minmax(190px, auto) auto auto auto;
   gap: 10px;
   align-items: start;
   margin-bottom: 14px;
@@ -789,6 +791,11 @@ select {
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
   background: oklch(20% 0.012 248);
+}
+
+.camera-list-row.editing {
+  border-color: oklch(68% 0.13 151 / 0.72);
+  background: oklch(22% 0.02 151 / 0.42);
 }
 
 .camera-list-row > div {

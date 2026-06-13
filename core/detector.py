@@ -185,14 +185,17 @@ class YOLOv11Detector:
 
 
 def _parse_class_confidences(value: Any) -> dict[str, float]:
+    default_thresholds = {"person": 0.20}
     if not isinstance(value, dict):
-        return {}
+        return default_thresholds
     parsed: dict[str, float] = {}
     for class_name, threshold in value.items():
         try:
             parsed[str(class_name)] = max(0.0, min(1.0, float(threshold)))
         except (TypeError, ValueError):
             continue
+    for class_name, threshold in default_thresholds.items():
+        parsed.setdefault(class_name, threshold)
     return parsed
 
 

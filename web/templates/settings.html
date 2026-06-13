@@ -24,6 +24,7 @@
           </div>
         </div>
         <form id="cameraForm" class="inline-form camera-form">
+          <input name="camera_id" type="hidden">
           <input name="name" type="text" placeholder="Camera name" required>
           <input name="source" type="text" placeholder="0, video.mp4, or rtsp://..." required>
           <fieldset class="channel-options" aria-label="Alert channels">
@@ -34,7 +35,8 @@
             <input name="enabled" type="checkbox" checked>
             Enabled
           </label>
-          <button class="button primary" type="submit">Add</button>
+          <button class="button primary" type="submit" id="cameraSubmitButton">Add</button>
+          <button class="button small" type="button" id="cameraEditCancel" hidden>Cancel</button>
         </form>
         <div id="settingsCameraList" class="camera-list">
           {% for camera in cameras %}
@@ -54,6 +56,7 @@
               </div>
               <span class="status-badge {{ camera.status }}">{{ camera.status }}</span>
               <a class="button small" href="/camera/{{ camera.camera_id }}">Open</a>
+              <button class="button small" type="button" data-edit-camera="{{ camera.camera_id }}">Edit</button>
               <button class="button danger small" type="button" data-delete-camera="{{ camera.camera_id }}">Delete</button>
             </div>
           {% endfor %}

@@ -183,7 +183,10 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(640, MAX_QUALITY_RUNTIME_SETTINGS["detection"]["imgsz"])
         self.assertEqual("yolo11n-pose.pt", MAX_QUALITY_RUNTIME_SETTINGS["pose"]["model"])
         self.assertEqual(640, MAX_QUALITY_RUNTIME_SETTINGS["pose"]["imgsz"])
-        self.assertEqual(6, MAX_QUALITY_RUNTIME_SETTINGS["pipeline"]["ai_max_fps"])
+        self.assertEqual(2, MAX_QUALITY_RUNTIME_SETTINGS["pipeline"]["frame_skip"])
+        self.assertEqual(10, MAX_QUALITY_RUNTIME_SETTINGS["pipeline"]["ai_max_fps"])
+        self.assertEqual(500, MAX_QUALITY_RUNTIME_SETTINGS["pipeline"]["analysis_stale_after_ms"])
+        self.assertEqual(5.0, MAX_QUALITY_RUNTIME_SETTINGS["pipeline"]["analysis_timeout_min_seconds"])
         self.assertEqual(720, MAX_QUALITY_RUNTIME_SETTINGS["pipeline"]["processing_max_height"])
         self.assertEqual(
             0.12,
@@ -194,19 +197,27 @@ class RuntimeSettingsTests(unittest.TestCase):
             MAX_QUALITY_RUNTIME_SETTINGS["detection"]["class_confidences"]["bicycle"],
         )
         self.assertEqual(
-            0.25,
+            0.20,
             MAX_QUALITY_RUNTIME_SETTINGS["detection"]["class_confidences"]["person"],
         )
         self.assertEqual(0.10, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["track_high_thresh"])
         self.assertEqual(0.05, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["track_low_thresh"])
         self.assertEqual(0.10, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["new_track_thresh"])
+        self.assertEqual(90, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["track_buffer"])
         self.assertEqual(3, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["track_grace_frames"])
+        self.assertFalse(
+            MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["camera_motion_compensation"]["enabled"]
+        )
         self.assertEqual(
             0.7,
             MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["duplicate_containment_threshold"],
         )
         self.assertEqual(0.45, MAX_QUALITY_RUNTIME_SETTINGS["identity"]["similarity_threshold"])
-        self.assertEqual(480, MAX_QUALITY_RUNTIME_SETTINGS["identity"]["detection_size"])
+        self.assertEqual("buffalo_sc", MAX_QUALITY_RUNTIME_SETTINGS["identity"]["model"])
+        self.assertEqual("cuda:0", MAX_QUALITY_RUNTIME_SETTINGS["identity"]["device"])
+        self.assertEqual(320, MAX_QUALITY_RUNTIME_SETTINGS["identity"]["detection_size"])
+        self.assertEqual(30, MAX_QUALITY_RUNTIME_SETTINGS["identity"]["min_face_size"])
+        self.assertEqual(10, MAX_QUALITY_RUNTIME_SETTINGS["identity"]["recognition_interval_frames"])
         self.assertEqual(5, MAX_QUALITY_RUNTIME_SETTINGS["identity"]["unknown_confirmation_attempts"])
         self.assertEqual(90, MAX_QUALITY_RUNTIME_SETTINGS["identity"]["known_memory_frames"])
         self.assertEqual(

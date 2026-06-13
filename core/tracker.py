@@ -95,6 +95,7 @@ class ByteTrackTracker:
             tracking_settings.get("duplicate_containment_threshold", 0.7)
         )
         self.tracker_arg_overrides = _parse_tracker_arg_overrides(tracking_settings)
+        self.tracker_arg_overrides.setdefault("track_buffer", 90)
         cmc_settings = tracking_settings.get("camera_motion_compensation", {})
         self.cmc_enabled = bool(cmc_settings.get("enabled", False))
         self.cmc_method = str(cmc_settings.get("method", "sparseOptFlow"))
@@ -183,6 +184,7 @@ class ByteTrackTracker:
             )
         )
         self.tracker_arg_overrides = _parse_tracker_arg_overrides(tracking_settings)
+        self.tracker_arg_overrides.setdefault("track_buffer", 90)
         self._apply_tracker_arg_overrides(self._tracker)
 
     def _app_track_id(self, raw_track_id: int, class_id: int) -> int:

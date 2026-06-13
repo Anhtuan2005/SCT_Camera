@@ -51,6 +51,14 @@ class DetectorShapeFilterTests(unittest.TestCase):
         self.assertTrue(_passes_class_confidence(0.217, "bicycle", 0.25, thresholds))
         self.assertFalse(_passes_class_confidence(0.09, "bicycle", 0.25, thresholds))
 
+    def test_person_confidence_defaults_to_lower_threshold_only(self) -> None:
+        thresholds = _parse_class_confidences({})
+
+        self.assertEqual(0.20, thresholds["person"])
+        self.assertEqual(0.20, _predict_confidence_threshold(0.4, thresholds))
+        self.assertTrue(_passes_class_confidence(0.21, "person", 0.4, thresholds))
+        self.assertFalse(_passes_class_confidence(0.21, "dog", 0.4, thresholds))
+
 
 if __name__ == "__main__":
     unittest.main()
