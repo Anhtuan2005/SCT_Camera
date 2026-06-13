@@ -13,6 +13,7 @@ from analytics.loitering import LoiteringDetector
 from analytics.person_identity import PersonIdentityResolver
 from analytics.suspicious_stranger import SuspiciousStrangerDetector
 from analytics.theft_behavior import SuspiciousTheftDetector
+from analytics.unknown_person import UnknownPersonDetector
 from analytics.zone import Zone
 from core.tracker import TrackedObject
 from utils.logger import get_logger
@@ -26,7 +27,8 @@ class BehaviorEngine:
     def __init__(self, settings: dict[str, Any]) -> None:
         behavior = settings.get("behavior", {})
         self.intrusion = IntrusionDetector(
-            reset_frames=int(behavior.get("intrusion_reset_frames", 30))
+            reset_frames=int(behavior.get("intrusion_reset_frames", 30)),
+            allowed_classes=behavior.get("intrusion_classes", ["person"]),
         )
         self.loitering = LoiteringDetector(
             default_threshold_seconds=float(
@@ -37,6 +39,7 @@ class BehaviorEngine:
             default_threshold_seconds=float(behavior.get("stranger_watch_seconds", 180)),
             settings=behavior.get("suspicious", {}),
         )
+        self.unknown_person = UnknownPersonDetector()
         self.asset_watch = AssetWatchDetector(
             default_missing_seconds=float(behavior.get("asset_missing_seconds", 6)),
             settings=behavior.get("asset_watch", {}),
@@ -83,6 +86,11 @@ class BehaviorEngine:
             )
         )
         alerts.extend(
+            self.unknown_person.analyze(
+                camera_id, camera_name, tracked_objects, timestamp
+            )
+        )
+        alerts.extend(
             self.suspicious_stranger.analyze(
                 camera_id, camera_name, tracked_objects, zones, frame_shape, timestamp
             )
@@ -114,8 +122,12 @@ class BehaviorEngine:
         """Return line counters for a camera."""
         return self.line_counter.get_counters(camera_id)
 
+    def get_person_timer_states(self, camera_id: str) -> dict[int, dict[str, Any]]:
+        """Return current full-frame loitering timers for drawing."""
+        return self.loitering.get_active_states(camera_id)
+
     def get_stranger_watch_states(self, camera_id: str) -> dict[int, dict[str, Any]]:
-        """Return current stranger-watch timer states for drawing."""
+        """Return current stranger-watch timer states."""
         return self.suspicious_stranger.get_active_states(camera_id)
 
     @staticmethod

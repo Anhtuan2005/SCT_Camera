@@ -8,10 +8,46 @@ from typing import Any
 
 import numpy as np
 
-from core.detector import YOLOv11Detector
+from core.detector import Detection, YOLOv11Detector
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class _TrackerDetections:
+    """NumPy detection view expected by Ultralytics BYTETracker."""
+
+    xywh: np.ndarray
+    conf: np.ndarray
+    cls: np.ndarray
+
+
+class _SafeGMC:
+    """Guard Ultralytics GMC against low-texture frames and invalid transforms."""
+
+    def __init__(self, method: str, downscale: int) -> None:
+        from ultralytics.trackers.utils.gmc import GMC
+
+        self._gmc = GMC(method=method, downscale=downscale)
+
+    def apply(self, frame: np.ndarray, detections: Any = None) -> np.ndarray:
+        try:
+            transform = self._gmc.apply(frame, detections)
+        except Exception as exc:
+            logger.debug("Camera motion estimation skipped: %s", exc)
+            self._gmc.reset_params()
+            return np.eye(2, 3, dtype=np.float32)
+
+        if transform is None:
+            return np.eye(2, 3, dtype=np.float32)
+        transform = np.asarray(transform, dtype=np.float32)
+        if transform.shape != (2, 3) or not np.isfinite(transform).all():
+            return np.eye(2, 3, dtype=np.float32)
+        return transform
+
+    def reset_params(self) -> None:
+        self._gmc.reset_params()
 
 
 @dataclass(frozen=True)
@@ -41,61 +77,43 @@ class ByteTrackTracker:
 
     def __init__(self, detector: YOLOv11Detector, settings: dict[str, Any]) -> None:
         tracking_settings = settings.get("tracking", {})
-        detection_settings = settings.get("detection", {})
         self.detector = detector
         self.tracker_config = str(tracking_settings.get("tracker", "bytetrack.yaml"))
         self.history_length = int(tracking_settings.get("track_history_length", 50))
         self.grace_frames = int(tracking_settings.get("track_grace_frames", 8))
-        self.confidence = float(detection_settings.get("confidence", detector.confidence))
-        self.class_ids = [int(item) for item in detection_settings.get("classes", detector.class_ids)]
-        self.iou = float(detection_settings.get("iou", detector.iou))
-        self.imgsz = int(detection_settings.get("imgsz", detector.imgsz))
         self.duplicate_iou_threshold = float(tracking_settings.get("duplicate_iou_threshold", 0.85))
+        cmc_settings = tracking_settings.get("camera_motion_compensation", {})
+        self.cmc_enabled = bool(cmc_settings.get("enabled", False))
+        self.cmc_method = str(cmc_settings.get("method", "sparseOptFlow"))
+        self.cmc_downscale = max(1, int(cmc_settings.get("downscale", 2)))
+        self._tracker = self._build_tracker()
         self._history: dict[int, deque[tuple[float, float]]] = defaultdict(
             lambda: deque(maxlen=self.history_length)
         )
         self._last_objects: dict[int, TrackedObject] = {}
         self._missing_frames: dict[int, int] = {}
-        self._next_track_id = 1
+        self._track_id_aliases: dict[tuple[int, int], int] = {}
+        self._track_alias_keys: dict[int, tuple[int, int]] = {}
+        self._next_track_alias = 1
 
     def track(self, frame_bgr: np.ndarray) -> list[TrackedObject]:
         """Track configured classes in a BGR frame."""
-        with self.detector.inference_lock:
-            results = self.detector.model.track(
-                frame_bgr,
-                persist=True,
-                tracker=self.tracker_config,
-                classes=self.class_ids,
-                conf=self.confidence,
-                iou=self.iou,
-                device=self.detector.device,
-                half=self.detector.use_half and self.detector.device.startswith("cuda"),
-                imgsz=self.imgsz,
-                verbose=False,
-            )
-
-        if not results:
+        detections = self.detector.detect(frame_bgr)
+        tracks = self._tracker.update(self._to_tracker_detections(detections), frame_bgr)
+        if tracks is None or len(tracks) == 0:
             return self._mark_missing_and_stale(set())
 
-        boxes = getattr(results[0], "boxes", None)
-        if boxes is None or len(boxes) == 0:
-            return self._mark_missing_and_stale(set())
-
-        xyxys = boxes.xyxy.cpu().tolist()
-        confidences = boxes.conf.cpu().tolist()
-        class_ids = [int(value) for value in boxes.cls.cpu().tolist()]
-        raw_ids = getattr(boxes, "id", None)
-        if raw_ids is None:
-            track_ids = self._fallback_track_ids(xyxys, frame_bgr.shape)
-        else:
-            track_ids = [int(value) for value in raw_ids.cpu().tolist()]
-            if track_ids:
-                self._next_track_id = max(self._next_track_id, max(track_ids) + 1)
-
-        active_ids = set(track_ids)
+        active_ids = {
+            self._app_track_id(int(row[4]), int(row[6]))
+            for row in tracks
+        }
         active_objects: list[TrackedObject] = []
-        for track_id, xyxy, confidence, class_id in zip(track_ids, xyxys, confidences, class_ids):
-            bbox = tuple(float(value) for value in xyxy)
+        for row in tracks:
+            bbox = tuple(float(value) for value in row[:4])
+            raw_track_id = int(row[4])
+            confidence = float(row[5])
+            class_id = int(row[6])
+            track_id = self._app_track_id(raw_track_id, class_id)
             x1, y1, x2, y2 = bbox
             center = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
             self._history[track_id].append(center)
@@ -120,41 +138,82 @@ class ByteTrackTracker:
         ]
         return self._dedupe_same_class([*active_objects, *stale_objects])
 
-    def _fallback_track_ids(
-        self,
-        xyxys: list[list[float]],
-        frame_shape: tuple[int, ...],
-    ) -> list[int]:
-        height, width = int(frame_shape[0]), int(frame_shape[1])
-        diagonal = max((height * height + width * width) ** 0.5, 1.0)
-        max_distance = max(48.0, diagonal * 0.08)
-        available_ids = set(self._last_objects)
-        track_ids: list[int] = []
+    def reset(self) -> None:
+        """Reset ByteTrack, GMC, and local object history for a new stream."""
+        self._tracker.reset()
+        gmc = getattr(self._tracker, "gmc", None)
+        if gmc is not None:
+            gmc.reset_params()
+        self._history.clear()
+        self._last_objects.clear()
+        self._missing_frames.clear()
+        self._track_id_aliases.clear()
+        self._track_alias_keys.clear()
+        self._next_track_alias = 1
 
-        for xyxy in xyxys:
-            x1, y1, x2, y2 = [float(value) for value in xyxy]
-            center = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
-            best_id: int | None = None
-            best_distance = max_distance
-            for track_id in list(available_ids):
-                previous = self._last_objects[track_id].center
-                distance = ((center[0] - previous[0]) ** 2 + (center[1] - previous[1]) ** 2) ** 0.5
-                if distance < best_distance:
-                    best_id = track_id
-                    best_distance = distance
-            if best_id is None:
-                best_id = self._allocate_track_id()
-            else:
-                available_ids.discard(best_id)
-            track_ids.append(best_id)
-        return track_ids
+    def _app_track_id(self, raw_track_id: int, class_id: int) -> int:
+        key = (class_id, raw_track_id)
+        existing = self._track_id_aliases.get(key)
+        if existing is not None:
+            return existing
 
-    def _allocate_track_id(self) -> int:
-        while self._next_track_id in self._last_objects:
-            self._next_track_id += 1
-        track_id = self._next_track_id
-        self._next_track_id += 1
-        return track_id
+        if raw_track_id not in self._track_alias_keys:
+            self._track_id_aliases[key] = raw_track_id
+            self._track_alias_keys[raw_track_id] = key
+            return raw_track_id
+
+        while self._next_track_alias in self._track_alias_keys:
+            self._next_track_alias += 1
+        app_track_id = self._next_track_alias
+        self._next_track_alias += 1
+        self._track_id_aliases[key] = app_track_id
+        self._track_alias_keys[app_track_id] = key
+        return app_track_id
+
+    def _build_tracker(self) -> Any:
+        from ultralytics.trackers.byte_tracker import BYTETracker
+        from ultralytics.utils import IterableSimpleNamespace, yaml_load
+        from ultralytics.utils.checks import check_yaml
+
+        config_path = check_yaml(self.tracker_config)
+        args = IterableSimpleNamespace(**yaml_load(config_path))
+        if str(args.tracker_type).lower() != "bytetrack":
+            raise ValueError(
+                f"ByteTrackTracker requires tracker_type=bytetrack, got {args.tracker_type}"
+            )
+
+        tracker = BYTETracker(args=args, frame_rate=30)
+        if self.cmc_enabled:
+            tracker.gmc = _SafeGMC(self.cmc_method, self.cmc_downscale)
+            logger.info(
+                "ByteTrack camera motion compensation enabled: method=%s downscale=%d",
+                self.cmc_method,
+                self.cmc_downscale,
+            )
+        return tracker
+
+    @staticmethod
+    def _to_tracker_detections(detections: list[Detection]) -> _TrackerDetections:
+        xywh: list[tuple[float, float, float, float]] = []
+        confidences: list[float] = []
+        class_ids: list[int] = []
+        for detection in detections:
+            x1, y1, x2, y2 = detection.bbox_xyxy
+            xywh.append(
+                (
+                    (x1 + x2) / 2.0,
+                    (y1 + y2) / 2.0,
+                    max(0.0, x2 - x1),
+                    max(0.0, y2 - y1),
+                )
+            )
+            confidences.append(detection.confidence)
+            class_ids.append(detection.class_id)
+        return _TrackerDetections(
+            xywh=np.asarray(xywh, dtype=np.float32).reshape(-1, 4),
+            conf=np.asarray(confidences, dtype=np.float32),
+            cls=np.asarray(class_ids, dtype=np.float32),
+        )
 
     def _mark_missing_and_stale(self, active_ids: set[int]) -> list[TrackedObject]:
         stale_objects: list[TrackedObject] = []

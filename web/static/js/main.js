@@ -1,4 +1,20 @@
 (function () {
+  const ALERT_TYPE_LABELS = {
+    intrusion: "Intrusion",
+    loitering: "Loitering",
+    stranger_detected: "Stranger detected",
+    suspicious_stranger: "Suspicious stranger",
+    asset_missing: "Possible theft",
+    asset_removed: "Possible theft",
+    suspicious_theft_behavior: "Possible theft",
+    line_crossing: "Line crossing",
+  };
+
+  function alertTypeLabel(value) {
+    const type = String(value || "");
+    return ALERT_TYPE_LABELS[type] || type.replaceAll("_", " ");
+  }
+
   const toastStack = document.getElementById("toastStack");
   const seenAlerts = new Set();
   let firstAlertPoll = true;
@@ -186,7 +202,7 @@
         seenAlerts.add(key);
         if (!firstAlertPoll && !alert.suppressed) {
           const target = alert.zone_name || alert.line_name || "-";
-          toast(`${alert.type} · ${alert.camera_name}`, `${target} · track #${alert.track_id}`);
+          toast(`${alertTypeLabel(alert.type)} · ${alert.camera_name}`, `${target} · track #${alert.track_id}`);
         }
       }
     }
@@ -213,11 +229,11 @@
     body.innerHTML = alerts
       .map((alert) => {
         const target = alert.zone_name || alert.line_name || "-";
-        const status = alert.suppressed ? "Suppressed" : alert.sent ? "Sent" : "Queued";
+        const status = alert.suppressed ? "Cooldown" : alert.sent ? "Sent" : "Queued";
         return `
           <tr>
             <td>${escapeHtml(alert.timestamp || alert.received_at || "")}</td>
-            <td>${escapeHtml(alert.type || "")}</td>
+            <td>${escapeHtml(alertTypeLabel(alert.type))}</td>
             <td>${escapeHtml(target)}</td>
             <td>${escapeHtml(status)}</td>
           </tr>`;
@@ -293,19 +309,21 @@
         method: "PUT",
         body: JSON.stringify({
           detection: {
-            model: form.get("model"),
-            confidence: Number(form.get("confidence") || 0.4),
-            iou: Number(form.get("iou") || 0.5),
-            imgsz: Number(form.get("imgsz") || 640),
+            model: form.get("model") || "yolo11s.pt",
+            confidence: Number(form.get("confidence") || 0.25),
+            iou: Number(form.get("iou") || 0.55),
+            imgsz: Number(form.get("imgsz") || 800),
             classes,
             device: form.get("device"),
+            half: true,
           },
           pose: {
-            enabled: form.get("pose_enabled") === "on",
+            enabled: true,
             model: form.get("pose_model") || "yolo11n-pose.pt",
-            allow_download: form.get("pose_allow_download") === "on",
-            confidence: 0.35,
-            imgsz: Number(form.get("imgsz") || 640),
+            allow_download: true,
+            confidence: 0.2,
+            imgsz: Number(form.get("pose_imgsz") || 640),
+            match_iou: 0.2,
           },
           behavior: {
             loitering_threshold_seconds: Number(form.get("loitering_threshold_seconds") || 30),
@@ -330,11 +348,12 @@
             min_risk_score: Number(form.get("learning_min_risk_score") || 0.65),
           },
           pipeline: {
-            frame_skip: Number(form.get("frame_skip") || 2),
+            frame_skip: Number(form.get("frame_skip") || 1),
+            ai_max_fps: Number(form.get("ai_max_fps") || 10),
             processing_max_height: Number(form.get("processing_max_height") || 720),
           },
           tracking: {
-            track_grace_frames: Number(form.get("track_grace_frames") || 6),
+            track_grace_frames: Number(form.get("track_grace_frames") || 15),
             duplicate_iou_threshold: Number(form.get("duplicate_iou_threshold") || 0.85),
           },
           siren: {

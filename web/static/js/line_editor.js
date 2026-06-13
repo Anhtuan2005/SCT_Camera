@@ -10,6 +10,9 @@
   let current = [];
   let selectedLineId = null;
   let draggingIndex = -1;
+  let draftDirty = false;
+  const saveButton = document.getElementById("saveLineButton");
+  const draftStatus = document.getElementById("lineDraftStatus");
 
   function resize() {
     const rect = image.getBoundingClientRect();
@@ -45,6 +48,26 @@
     }
     if (current.length === 1) drawPoint(current[0], "#72d79b");
     if (current.length === 2) drawLine(current[0], current[1], "#72d79b", document.getElementById("lineDirection").value);
+  }
+
+  function setDraftDirty(dirty) {
+    draftDirty = dirty;
+    if (draftStatus) {
+      draftStatus.textContent = dirty ? "Unsaved changes" : "Saved";
+      draftStatus.classList.toggle("dirty", dirty);
+    }
+    if (saveButton) {
+      saveButton.disabled = !dirty || current.length !== 2;
+    }
+  }
+
+  function resetDraft() {
+    current = [];
+    selectedLineId = null;
+    document.getElementById("lineName").value = "New Line";
+    document.getElementById("lineDirection").value = "forward";
+    setDraftDirty(false);
+    draw();
   }
 
   function drawLine(point1, point2, color, direction) {
@@ -132,12 +155,14 @@
     selectedLineId = null;
     if (current.length < 2) current.push(point);
     else current = [point];
+    setDraftDirty(true);
     draw();
   });
 
   canvas.addEventListener("pointermove", (event) => {
     if (draggingIndex < 0) return;
     current[draggingIndex] = pointer(event);
+    setDraftDirty(true);
     draw();
   });
 
@@ -145,15 +170,17 @@
     draggingIndex = -1;
   });
 
-  document.getElementById("lineDirection")?.addEventListener("change", draw);
-
-  document.getElementById("clearLineButton")?.addEventListener("click", () => {
-    current = [];
-    selectedLineId = null;
+  document.getElementById("lineDirection")?.addEventListener("change", () => {
+    setDraftDirty(true);
     draw();
   });
 
-  document.getElementById("saveLineButton")?.addEventListener("click", async () => {
+  document.getElementById("clearLineButton")?.addEventListener("click", () => {
+    resetDraft();
+    window.SCT.toast("Draft discarded", "Saved counting lines were not changed");
+  });
+
+  saveButton?.addEventListener("click", async () => {
     if (current.length !== 2) {
       window.SCT.toast("Line incomplete", "Line needs 2 endpoints");
       return;
@@ -171,6 +198,7 @@
     });
     selectedLineId = saved.id;
     await loadLines();
+    setDraftDirty(false);
     window.SCT.toast("Line saved", saved.name);
   });
 
@@ -187,6 +215,7 @@
       ];
       document.getElementById("lineName").value = line.name || "Line";
       document.getElementById("lineDirection").value = line.direction || "forward";
+      setDraftDirty(false);
       draw();
     }
     if (deleteButton) {
@@ -194,8 +223,7 @@
         `/api/cameras/${encodeURIComponent(cameraId)}/lines/${encodeURIComponent(deleteButton.dataset.deleteLine)}`,
         { method: "DELETE" }
       );
-      selectedLineId = null;
-      current = [];
+      resetDraft();
       await loadLines();
       window.SCT.toast("Line deleted", deleteButton.dataset.deleteLine);
     }
@@ -242,6 +270,13 @@
 
   image.addEventListener("load", resize);
   window.addEventListener("resize", resize);
+  document.getElementById("lineName")?.addEventListener("input", () => setDraftDirty(true));
+  window.addEventListener("beforeunload", (event) => {
+    if (!draftDirty) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
   new ResizeObserver(resize).observe(image);
+  setDraftDirty(false);
   loadLines().catch((error) => window.SCT.toast("Line API error", error.message));
 })();

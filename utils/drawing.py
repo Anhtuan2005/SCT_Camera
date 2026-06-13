@@ -26,11 +26,11 @@ def draw_annotations(
     tracked_objects: list[TrackedObject],
     camera_config: dict[str, Any],
     counters: dict[str, dict[str, int]] | None = None,
-    stranger_watch_states: dict[int, dict[str, Any]] | None = None,
+    person_timer_states: dict[int, dict[str, Any]] | None = None,
 ) -> np.ndarray:
     """Draw zones, lines, track boxes, histories, and counters on a frame."""
     counters = counters or {}
-    stranger_watch_states = stranger_watch_states or {}
+    person_timer_states = person_timer_states or {}
     zones = [Zone.from_config(item) for item in camera_config.get("zones", []) if len(item.get("polygon", [])) >= 3]
     lines = [CountingLine.from_config(item) for item in camera_config.get("lines", [])]
 
@@ -44,7 +44,7 @@ def draw_annotations(
         _draw_line(annotated, line, counters.get(line.id, {"in": 0, "out": 0}))
 
     for obj in tracked_objects:
-        _draw_object(annotated, obj, stranger_watch_states.get(obj.track_id))
+        _draw_object(annotated, obj, person_timer_states.get(obj.track_id))
 
     _draw_frame_hud(annotated, camera_config, tracked_objects)
     return annotated
@@ -84,7 +84,7 @@ def _draw_line(frame: np.ndarray, line: CountingLine, counter: dict[str, int]) -
 def _draw_object(
     frame: np.ndarray,
     obj: TrackedObject,
-    stranger_watch_state: dict[str, Any] | None = None,
+    person_timer_state: dict[str, Any] | None = None,
 ) -> None:
     x1, y1, x2, y2 = [int(round(value)) for value in obj.bbox_xyxy]
     color = _color_for_id(obj.track_id)
@@ -94,8 +94,8 @@ def _draw_object(
     cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness, lineType=cv2.LINE_AA)
     label = _object_label(obj)
     _draw_label(frame, label, (x1, y1 - max(8, int(8 * _visual_scale(frame)))), color)
-    if stranger_watch_state:
-        _draw_timer_badge(frame, stranger_watch_state, (x1, y1, x2, y2))
+    if person_timer_state:
+        _draw_timer_badge(frame, person_timer_state, (x1, y1, x2, y2))
 
     if obj.pose_keypoints:
         _draw_pose(frame, obj.pose_keypoints, color)

@@ -5,6 +5,8 @@ python-multipart==0.0.20
 PyYAML==6.0.2
 opencv-python==4.10.0.84
 ultralytics==8.3.51
+insightface==1.0.1
+onnxruntime==1.23.2
 httpx==0.28.1
 numpy==1.26.4
 torch>=2.5.0

@@ -166,12 +166,20 @@
             <h2>Pose</h2>
           </div>
           <div class="form-grid">
-            <label class="checkbox-row"><input name="pose_enabled" type="checkbox" {% if settings.pose.enabled | default(false) %}checked{% endif %}>Enabled</label>
+            <label class="checkbox-row"><input name="pose_enabled" type="checkbox" checked disabled>Always enabled</label>
             <label>
               Pose model
-              <input name="pose_model" type="text" value="{{ settings.pose.model | default('yolo11n-pose.pt') }}">
+              <select name="pose_model">
+                <option value="yolo11n-pose.pt" {% if settings.pose.model == "yolo11n-pose.pt" %}selected{% endif %}>yolo11n-pose.pt</option>
+                <option value="yolo11s-pose.pt" {% if settings.pose.model == "yolo11s-pose.pt" %}selected{% endif %}>yolo11s-pose.pt</option>
+                <option value="yolo11m-pose.pt" {% if settings.pose.model == "yolo11m-pose.pt" %}selected{% endif %}>yolo11m-pose.pt</option>
+              </select>
             </label>
-            <label class="checkbox-row"><input name="pose_allow_download" type="checkbox" {% if settings.pose.allow_download | default(false) %}checked{% endif %}>Allow download</label>
+            <label>
+              Pose inference size
+              <input name="pose_imgsz" type="number" step="32" min="320" max="1280" value="{{ settings.pose.imgsz | default(640) }}">
+            </label>
+            <label class="checkbox-row"><input name="pose_allow_download" type="checkbox" checked disabled>Model auto-download</label>
           </div>
         </section>
 
@@ -185,6 +193,10 @@
             <label>
               Frame skip
               <input name="frame_skip" type="number" min="1" value="{{ settings.pipeline.frame_skip }}">
+            </label>
+            <label>
+              AI max FPS
+              <input name="ai_max_fps" type="number" step="1" min="0" max="60" value="{{ settings.pipeline.ai_max_fps | default(10) }}">
             </label>
             <label>
               Processing max height

@@ -8,6 +8,7 @@ from datetime import datetime
 from math import hypot
 from typing import Any
 
+from analytics.identity_status import is_confirmed_stranger
 from analytics.zone import Zone
 from core.tracker import TrackedObject
 
@@ -270,7 +271,7 @@ class SuspiciousTheftDetector:
 
     @staticmethod
     def _is_unknown_person(obj: TrackedObject) -> bool:
-        return obj.class_name == "person" and obj.identity_kind != "known_person"
+        return is_confirmed_stranger(obj)
 
     @staticmethod
     def _frame_diagonal(frame_shape: tuple[int, int, int]) -> float:

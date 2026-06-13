@@ -25,6 +25,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   min-height: 100%;
   background: var(--bg);
@@ -283,6 +287,30 @@ select:focus-visible,
 
 .button.full {
   width: 100%;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
+}
+
+.editor-save-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.draft-status {
+  color: var(--faint);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.draft-status.dirty {
+  color: var(--warning);
 }
 
 .summary-strip {

@@ -43,19 +43,28 @@ class PoseEstimator:
         device: str | None = None,
         use_half: bool | None = None,
     ) -> None:
+        previous_enabled = self.enabled
+        previous_model_path = self.model_path
+        previous_device = self.device
+        previous_use_half = self.use_half
         if device is not None:
             self.device = device
         if use_half is not None:
             self.use_half = use_half
 
         pose_settings = settings.get("pose", {})
-        self.enabled = bool(pose_settings.get("enabled", False))
+        self.enabled = bool(pose_settings.get("enabled", self.enabled))
         self.model_path = str(pose_settings.get("model", "yolo11n-pose.pt"))
         self.confidence = float(pose_settings.get("confidence", 0.35))
         self.imgsz = int(pose_settings.get("imgsz", settings.get("detection", {}).get("imgsz", 640)))
         self.match_iou = float(pose_settings.get("match_iou", 0.25))
         self.allow_download = bool(pose_settings.get("allow_download", False))
-        if not self.enabled:
+        if (
+            self.enabled != previous_enabled
+            or self.model_path != previous_model_path
+            or self.device != previous_device
+            or self.use_half != previous_use_half
+        ):
             self.model = None
 
     def attach(self, frame_bgr: np.ndarray, objects: list[TrackedObject]) -> list[TrackedObject]:

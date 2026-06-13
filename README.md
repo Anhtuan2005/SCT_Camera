@@ -7,10 +7,14 @@ Camera(s) -> YOLOv11 Detection -> ByteTrack Tracking -> Behavior Analysis -> Tel
 ## Tính năng chính
 
 - YOLOv11 qua `ultralytics`, model mặc định `yolo11n.pt`.
-- ByteTrack built-in của Ultralytics: `model.track(persist=True, tracker="bytetrack.yaml")`.
+- ByteTrack của Ultralytics với tracker state riêng cho từng camera.
+- Camera motion compensation (CMC) bằng sparse optical flow để ổn định tracking khi camera rung/pan nhẹ.
 - Multi-camera pipeline, mỗi camera chạy trên một thread riêng.
 - FastAPI dashboard với MJPEG stream, ROI editor, line editor, settings và alert history.
 - Intrusion detection, loitering detection, line crossing counter.
+- Phát hiện người lạ trên toàn khung hình và cảnh báo ngay, không phụ thuộc ROI.
+- Nhận diện người quen bằng InsightFace face embedding, cache theo track ID.
+- Loitering toàn khung hình với timer 30 giây mặc định, không phụ thuộc ROI.
 - Telegram alert async qua `httpx`, có cooldown, dedup, retry và history.
 - Config YAML cho global settings và từng camera.
 
@@ -57,6 +61,8 @@ Các mục quan trọng:
 - `detection.device`: dùng `cuda:0` nếu CUDA hoạt động, hoặc `cpu`.
 - `pipeline.frame_skip`: tăng lên để giảm tải GPU.
 - `pipeline.camera_backend`: trên Windows nên để `msmf`; app tự bật workaround cho Logitech/UVC webcam.
+- `tracking.camera_motion_compensation`: bật/tắt CMC; mặc định dùng `sparseOptFlow`, `downscale: 2`.
+- `identity.similarity_threshold`: ngưỡng cosine của InsightFace; mặc định `0.45`.
 
 Camera config nằm trong:
 
@@ -69,6 +75,28 @@ config/cameras/*.yaml
 - `0` cho webcam mặc định.
 - Đường dẫn file video như `E:\videos\sample.mp4`.
 - RTSP URL như `rtsp://user:password@192.168.1.100:554/stream1`.
+
+### Nhận diện người quen với InsightFace
+
+Đặt ảnh khuôn mặt rõ nét vào `config/known_people`, rồi khai báo:
+
+```yaml
+identity:
+  enabled: true
+  model: buffalo_l
+  device: auto
+  similarity_threshold: 0.45
+  known_persons:
+  - name: Ba
+    reference_images:
+    - config/known_people/ba_front.jpg
+    - config/known_people/ba_side.jpg
+```
+
+Model được tải vào `models/insightface` ở lần dùng đầu tiên. `onnxruntime`
+trong requirements chạy CPU để không tranh GPU với YOLO. Pretrained model do
+InsightFace cung cấp chỉ dành cho nghiên cứu phi thương mại; production thương
+mại cần model có giấy phép phù hợp.
 
 ## Chạy hệ thống
 

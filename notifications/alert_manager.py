@@ -192,6 +192,11 @@ class AlertManager:
             or alert.get("line_id")
             or alert.get("zone_name")
             or alert.get("line_name")
+            or (
+                f"track:{alert['track_id']}"
+                if alert.get("track_id") is not None
+                else None
+            )
             or "global"
         )
         return str(alert.get("camera_id", "unknown")), str(alert.get("type", "alert")), target

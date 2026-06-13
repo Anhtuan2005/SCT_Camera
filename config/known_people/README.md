@@ -14,6 +14,10 @@ identity:
     - config/known_people/ba_side.jpg
 ```
 
-Use clear full-body crops from the same camera angle when possible. The current
-resolver uses OpenCV color histograms, so it is suitable for a controlled demo,
-not biometric-grade face recognition.
+Use clear face photos with one person per image. A front-facing photo and one or
+two slightly different angles usually work better than a full-body crop.
+
+The resolver uses InsightFace cosine similarity. The default `buffalo_l` model
+is downloaded to `models/insightface` on first use. InsightFace code is MIT
+licensed, but its provided pretrained models are limited to non-commercial
+research use. Configure a separately licensed model for commercial deployment.

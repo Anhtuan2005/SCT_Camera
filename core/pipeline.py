@@ -53,9 +53,20 @@ class CameraPipeline:
         self.tracker = ByteTrackTracker(detector, settings)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._analysis_state_lock = threading.RLock()
+        self._analysis_thread: threading.Thread | None = None
+        self._analysis_inflight = False
+        self._analysis_token = 0
+        self._analysis_generation = 0
+        self._last_analysis_started_at = 0.0
+        self._latest_objects: list[TrackedObject] = []
+        self._latest_counters: dict[str, Any] = {}
+        self._latest_person_timer_states: dict[str, Any] = {}
+        self._pending_alert_count = 0
 
         pipeline_settings = settings.get("pipeline", {})
         self.frame_skip = max(1, int(pipeline_settings.get("frame_skip", 2)))
+        self.ai_max_fps = max(0.0, float(pipeline_settings.get("ai_max_fps", 10)))
         self.reconnect_delay = float(pipeline_settings.get("reconnect_delay", 5))
         self.max_reconnect_attempts = int(pipeline_settings.get("max_reconnect_attempts", 10))
         self.processing_max_height = int(
@@ -91,6 +102,8 @@ class CameraPipeline:
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
+        if self._analysis_thread and self._analysis_thread.is_alive():
+            self._analysis_thread.join(timeout=min(1.0, timeout))
         self.frame_buffer.set_status("offline", "Pipeline stopped")
 
     def update_config(self, camera_config: dict[str, Any]) -> None:
@@ -104,7 +117,6 @@ class CameraPipeline:
 
     def _run(self) -> None:
         reconnect_attempts = 0
-        last_objects: list[TrackedObject] = []
         frame_index = 0
 
         while not self._stop_event.is_set():
@@ -130,6 +142,8 @@ class CameraPipeline:
 
             reconnect_attempts = 0
             self.frame_buffer.set_status("connecting", "Waiting for first frame")
+            self.tracker.reset()
+            self._reset_analysis_state()
 
             try:
                 is_video_file = self._is_video_file_source(source)
@@ -140,7 +154,8 @@ class CameraPipeline:
                     if not ok or frame is None:
                         if is_video_file and self.loop_video_files:
                             capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                            last_objects = []
+                            self.tracker.reset()
+                            self._reset_analysis_state()
                             frame_index = 0
                             next_frame_at = time.monotonic()
                             continue
@@ -151,45 +166,19 @@ class CameraPipeline:
                     frame = self._resize_for_processing(frame)
                     frame_index += 1
                     config = self._get_config()
-                    process_now = frame_index % self.frame_skip == 0
-                    alerts: list[dict[str, Any]] = []
-
-                    if process_now:
-                        try:
-                            last_objects = self.tracker.track(frame)
-                            last_objects = self.pose_estimator.attach(frame, last_objects)
-                            last_objects = self.behavior_engine.label_objects(
-                                last_objects,
-                                config,
-                                frame,
-                            )
-                            alerts = self.behavior_engine.analyze(
-                                last_objects,
-                                config,
-                                frame.shape,
-                            )
-                        except Exception as exc:
-                            logger.exception("Camera %s processing error: %s", camera_id, exc)
-                            self.frame_buffer.set_status("degraded", str(exc))
-
-                    counters = self.behavior_engine.get_counters(camera_id)
-                    stranger_watch_states = self.behavior_engine.get_stranger_watch_states(camera_id)
+                    self._submit_analysis_if_due(frame, config, camera_id, frame_index, time.monotonic())
+                    last_objects, counters, person_timer_states, new_alert_count = self._analysis_snapshot()
                     annotated = draw_annotations(
                         frame,
                         last_objects,
                         config,
                         counters,
-                        stranger_watch_states,
+                        person_timer_states,
                     )
-                    for alert in alerts:
-                        alert["notification_channels"] = list(config.get("notification_channels", ["telegram"]))
-                        alert["frame"] = annotated.copy()
-                        self.alert_manager.enqueue_threadsafe(alert)
-
                     self.frame_buffer.update(
                         annotated,
                         object_count=len(last_objects),
-                        new_alert_count=len(alerts),
+                        new_alert_count=new_alert_count,
                         status="online",
                     )
 
@@ -213,6 +202,126 @@ class CameraPipeline:
                     self._sleep_interruptible(self.reconnect_delay)
 
         self.frame_buffer.set_status("offline", "Pipeline exited")
+
+    def _reset_analysis_state(self) -> None:
+        with self._analysis_state_lock:
+            self._analysis_generation += 1
+            self._last_analysis_started_at = 0.0
+            self._latest_objects = []
+            self._latest_counters = {}
+            self._latest_person_timer_states = {}
+            self._pending_alert_count = 0
+
+    def _submit_analysis_if_due(
+        self,
+        frame: Any,
+        config: dict[str, Any],
+        camera_id: str,
+        frame_index: int,
+        now: float,
+    ) -> bool:
+        with self._analysis_state_lock:
+            if self._analysis_inflight:
+                return False
+            if not self._analysis_due(
+                frame_index,
+                self.frame_skip,
+                self.ai_max_fps,
+                now,
+                self._last_analysis_started_at,
+            ):
+                return False
+            self._analysis_inflight = True
+            self._last_analysis_started_at = now
+            self._analysis_token += 1
+            token = self._analysis_token
+            generation = self._analysis_generation
+
+        thread = threading.Thread(
+            target=self._analyze_frame,
+            args=(frame.copy(), copy.deepcopy(config), camera_id, token, generation),
+            name=f"camera-analysis-{camera_id}",
+            daemon=True,
+        )
+        self._analysis_thread = thread
+        thread.start()
+        return True
+
+    @staticmethod
+    def _analysis_due(
+        frame_index: int,
+        frame_skip: int,
+        ai_max_fps: float,
+        now: float,
+        last_analysis_started_at: float,
+    ) -> bool:
+        if frame_index % max(1, int(frame_skip)) != 0:
+            return False
+        if ai_max_fps <= 0 or last_analysis_started_at <= 0:
+            return True
+        return now - last_analysis_started_at >= 1.0 / ai_max_fps
+
+    def _analysis_snapshot(
+        self,
+    ) -> tuple[list[TrackedObject], dict[str, Any], dict[str, Any], int]:
+        with self._analysis_state_lock:
+            pending_alert_count = self._pending_alert_count
+            self._pending_alert_count = 0
+            return (
+                list(self._latest_objects),
+                copy.deepcopy(self._latest_counters),
+                copy.deepcopy(self._latest_person_timer_states),
+                pending_alert_count,
+            )
+
+    def _analyze_frame(
+        self,
+        frame: Any,
+        config: dict[str, Any],
+        camera_id: str,
+        token: int,
+        generation: int,
+    ) -> None:
+        try:
+            behavior_engine = self.behavior_engine
+            objects = self.tracker.track(frame)
+            if self._pose_needed(config, self.settings):
+                objects = self.pose_estimator.attach(frame, objects)
+            objects = behavior_engine.label_objects(objects, config, frame)
+            alerts = behavior_engine.analyze(objects, config, frame.shape)
+            counters = behavior_engine.get_counters(camera_id)
+            person_timer_states = behavior_engine.get_person_timer_states(camera_id)
+
+            with self._analysis_state_lock:
+                if generation != self._analysis_generation:
+                    return
+
+            annotated = draw_annotations(
+                frame,
+                objects,
+                config,
+                counters,
+                person_timer_states,
+            )
+            for alert in alerts:
+                alert["notification_channels"] = list(config.get("notification_channels", ["telegram"]))
+                alert["frame"] = annotated.copy()
+                self.alert_manager.enqueue_threadsafe(alert)
+
+            with self._analysis_state_lock:
+                if generation != self._analysis_generation:
+                    return
+                self._latest_objects = objects
+                self._latest_counters = counters
+                self._latest_person_timer_states = person_timer_states
+                self._pending_alert_count += len(alerts)
+        except Exception as exc:
+            logger.exception("Camera %s processing error: %s", camera_id, exc)
+            self.frame_buffer.set_status("degraded", str(exc))
+        finally:
+            with self._analysis_state_lock:
+                if self._analysis_token == token:
+                    self._analysis_inflight = False
 
     def _get_config(self) -> dict[str, Any]:
         with self._config_lock:
@@ -283,6 +392,20 @@ class CameraPipeline:
         if text.lower().startswith(("rtsp://", "http://", "https://")):
             return False
         return Path(text).exists()
+
+    @staticmethod
+    def _pose_needed(config: dict[str, Any], settings: dict[str, Any]) -> bool:
+        if not bool(settings.get("pose", {}).get("enabled", True)):
+            return False
+        theft = settings.get("behavior", {}).get("theft", {})
+        if not bool(theft.get("enabled", True)):
+            return False
+        return any(
+            str(zone.get("type", zone.get("zone_type", ""))) in {"all", "asset_watch"}
+            and len(zone.get("polygon", [])) >= 3
+            for zone in config.get("zones", [])
+            if isinstance(zone, dict)
+        )
 
     @staticmethod
     def _frame_interval(capture: cv2.VideoCapture) -> float:

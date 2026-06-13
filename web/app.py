@@ -27,6 +27,42 @@ from web.routes import config_api, dashboard, stream
 logger = get_logger(__name__)
 
 ALERT_CHANNELS = {"telegram", "discord"}
+MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
+    "detection": {
+        "model": "yolo11s.pt",
+        "confidence": 0.25,
+        "classes": [0, 1, 2, 3, 5, 7, 24, 26, 28, 15, 16],
+        "device": "cuda:0",
+        "half": True,
+        "imgsz": 800,
+        "iou": 0.55,
+    },
+    "pose": {
+        "enabled": True,
+        "model": "yolo11n-pose.pt",
+        "allow_download": True,
+        "confidence": 0.2,
+        "imgsz": 640,
+        "match_iou": 0.2,
+    },
+    "pipeline": {
+        "frame_skip": 1,
+        "ai_max_fps": 10,
+        "processing_max_height": 720,
+    },
+    "tracking": {
+        "track_grace_frames": 15,
+        "duplicate_iou_threshold": 0.85,
+    },
+}
+
+
+def _enforce_required_runtime_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    """Keep required vision features enabled in every configuration path."""
+    pose = settings.setdefault("pose", {})
+    pose.setdefault("enabled", True)
+    pose.setdefault("allow_download", True)
+    return settings
 
 
 def _safe_id(value: str) -> str:
@@ -122,7 +158,7 @@ class RuntimeState:
         settings_path: Path,
         cameras_dir: Path,
     ) -> None:
-        self.settings = copy.deepcopy(settings)
+        self.settings = _enforce_required_runtime_settings(copy.deepcopy(settings))
         self.cameras = copy.deepcopy(cameras)
         self.settings_path = settings_path
         self.cameras_dir = cameras_dir
@@ -307,12 +343,23 @@ class RuntimeState:
         camera_id = str(payload.get("camera_id") or self._new_camera_id(payload.get("name", "camera")))
         camera_id = self._safe_id(camera_id)
         with self._lock:
+            is_new_source = camera_id not in self.cameras
+        if is_new_source:
+            self.update_settings(copy.deepcopy(MAX_QUALITY_RUNTIME_SETTINGS))
+
+        with self._lock:
             existing = copy.deepcopy(self.cameras.get(camera_id, {}))
             config = {
                 "camera_id": camera_id,
                 "name": str(payload.get("name") or existing.get("name") or camera_id),
                 "source": payload.get("source", existing.get("source", 0)),
                 "enabled": bool(payload.get("enabled", existing.get("enabled", True))),
+                "vision_profile": str(
+                    payload.get(
+                        "vision_profile",
+                        existing.get("vision_profile", "max_quality_realtime"),
+                    )
+                ),
                 "notification_channels": _normalize_notification_channels(
                     payload.get("notification_channels", existing.get("notification_channels"))
                 ),
@@ -433,18 +480,16 @@ class RuntimeState:
     def update_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Deep-merge settings, persist them, and apply runtime-safe changes."""
         with self._lock:
-            self.settings = self._deep_merge(copy.deepcopy(self.settings), payload)
+            updated_settings = self._deep_merge(copy.deepcopy(self.settings), payload)
+            updated_settings = _enforce_required_runtime_settings(updated_settings)
+            self.detector.update_settings(updated_settings)
+            self.settings = updated_settings
             self.settings_path.write_text(
                 yaml.safe_dump(self.settings, sort_keys=False, allow_unicode=True),
                 encoding="utf-8",
             )
             self.alert_manager.update_settings(self.settings)
             self.behavior_engine = BehaviorEngine(self.settings)
-            detection = self.settings.get("detection", {})
-            self.detector.confidence = float(detection.get("confidence", self.detector.confidence))
-            self.detector.class_ids = [int(item) for item in detection.get("classes", self.detector.class_ids)]
-            self.detector.iou = float(detection.get("iou", self.detector.iou))
-            self.detector.imgsz = int(detection.get("imgsz", self.detector.imgsz))
             self.pose_estimator.update_settings(
                 self.settings,
                 device=self.detector.device,
@@ -459,6 +504,7 @@ class RuntimeState:
                 pipeline.pose_estimator = self.pose_estimator
                 pipeline.behavior_engine = self.behavior_engine
                 pipeline.frame_skip = max(1, int(pipeline_settings.get("frame_skip", 2)))
+                pipeline.ai_max_fps = max(0.0, float(pipeline_settings.get("ai_max_fps", 10)))
                 pipeline.reconnect_delay = float(pipeline_settings.get("reconnect_delay", 5))
                 pipeline.max_reconnect_attempts = int(pipeline_settings.get("max_reconnect_attempts", 10))
                 pipeline.processing_max_height = int(

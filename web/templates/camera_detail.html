@@ -41,25 +41,37 @@
       <section class="panel" id="roiPanel">
         <div class="panel-heading">
           <h2>ROI Zones</h2>
-          <button class="button small" type="button" id="clearRoiButton">Clear</button>
+          <button class="button small" type="button" id="clearRoiButton">Discard Draft</button>
         </div>
         <label>
           Name
           <input id="zoneName" type="text" value="New Zone">
         </label>
-        <input id="zoneType" type="hidden" value="all">
+        <label>
+          Behavior
+          <select id="zoneType">
+            <option value="" selected>Select behavior</option>
+            <option value="intrusion">Intrusion</option>
+            <option value="loitering">Loitering</option>
+            <option value="stranger_watch">Stranger Watch</option>
+            <option value="asset_watch">Asset Watch / Theft</option>
+          </select>
+        </label>
         <label id="zoneThresholdLabel">
           Alert after seconds
           <input id="zoneThreshold" type="number" min="1" value="15">
         </label>
-        <button class="button primary full" type="button" id="saveZoneButton">Save Zone</button>
+        <div class="editor-save-row">
+          <span class="draft-status" id="zoneDraftStatus" role="status">Saved</span>
+          <button class="button primary" type="button" id="saveZoneButton" disabled>Save Zone</button>
+        </div>
         <div id="zoneList" class="compact-list"></div>
       </section>
 
       <section class="panel hidden" id="linePanel">
         <div class="panel-heading">
           <h2>Counting Lines</h2>
-          <button class="button small" type="button" id="clearLineButton">Clear</button>
+          <button class="button small" type="button" id="clearLineButton">Discard Draft</button>
         </div>
         <label>
           Name
@@ -72,7 +84,10 @@
             <option value="reverse">Reverse</option>
           </select>
         </label>
-        <button class="button primary full" type="button" id="saveLineButton">Save Line</button>
+        <div class="editor-save-row">
+          <span class="draft-status" id="lineDraftStatus" role="status">Saved</span>
+          <button class="button primary" type="button" id="saveLineButton" disabled>Save Line</button>
+        </div>
         <div id="lineList" class="compact-list"></div>
       </section>
 
@@ -106,7 +121,7 @@
 
 {% block scripts %}
   {% if camera %}
-  <script src="/static/js/roi_editor.js?v=roi-4"></script>
-  <script src="/static/js/line_editor.js"></script>
+  <script src="/static/js/roi_editor.js?v=roi-7"></script>
+  <script src="/static/js/line_editor.js?v=line-2"></script>
   {% endif %}
 {% endblock %}

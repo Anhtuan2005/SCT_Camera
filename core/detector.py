@@ -86,6 +86,42 @@ class YOLOv11Detector:
             )
         return detections
 
+    def update_settings(self, settings: dict[str, Any]) -> None:
+        """Apply detection settings and reload the model when required."""
+        detection_settings = settings.get("detection", {})
+        model_path = str(detection_settings.get("model", self.model_path))
+        requested_device = str(detection_settings.get("device", self.device))
+        requested_half = bool(detection_settings.get("half", self.use_half))
+
+        previous_device = self.device
+        previous_half = self.use_half
+        self.device = requested_device
+        self.use_half = requested_half
+        self._configure_device()
+
+        if model_path != self.model_path or self.device != previous_device:
+            logger.info("Reloading YOLO model %s on %s", model_path, self.device)
+            try:
+                from ultralytics import YOLO
+
+                model = YOLO(model_path)
+                model.to(self.device)
+            except Exception:
+                self.device = previous_device
+                self.use_half = previous_half
+                raise
+            with self.inference_lock:
+                self.model = model
+                self.model_path = model_path
+                self.names = self._extract_names()
+
+        self.confidence = float(detection_settings.get("confidence", self.confidence))
+        self.class_ids = [
+            int(item) for item in detection_settings.get("classes", self.class_ids)
+        ]
+        self.iou = float(detection_settings.get("iou", self.iou))
+        self.imgsz = int(detection_settings.get("imgsz", self.imgsz))
+
     def class_name(self, class_id: int) -> str:
         """Return a human-readable class name for an integer class id."""
         return self.names.get(class_id, str(class_id))

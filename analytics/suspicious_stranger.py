@@ -7,6 +7,7 @@ from datetime import datetime
 from math import hypot
 from typing import Any
 
+from analytics.identity_status import is_confirmed_stranger
 from analytics.zone import Zone
 from core.tracker import TrackedObject
 
@@ -151,7 +152,7 @@ class SuspiciousStrangerDetector:
 
     @staticmethod
     def _is_stranger(obj: TrackedObject) -> bool:
-        return obj.class_name == "person" and obj.identity_kind != "known_person"
+        return is_confirmed_stranger(obj)
 
     def _suspicious_reason(
         self,

@@ -10,7 +10,11 @@
   let current = [];
   let selectedZoneId = null;
   let draggingIndex = -1;
-  const DEFAULT_ZONE_TYPE = "all";
+  let draftDirty = false;
+  const saveButton = document.getElementById("saveZoneButton");
+  const draftStatus = document.getElementById("zoneDraftStatus");
+  const DEFAULT_ZONE_TYPE = "";
+  const FALLBACK_ZONE_TYPE = "intrusion";
   const DEFAULT_THRESHOLD_SECONDS = 15;
   const TIMED_ZONE_TYPES = new Set(["all", "loitering", "stranger_watch", "asset_watch"]);
   const ZONE_TYPE_LABELS = {
@@ -55,6 +59,29 @@
       drawPolygon(zone.polygon || [], zone.id === selectedZoneId ? "#72d79b" : "rgba(160,175,185,.55)", false);
     }
     drawPolygon(current, "#72d79b", true);
+  }
+
+  function setDraftDirty(dirty) {
+    draftDirty = dirty;
+    if (draftStatus) {
+      draftStatus.textContent = dirty ? "Unsaved changes" : "Saved";
+      draftStatus.classList.toggle("dirty", dirty);
+    }
+    if (saveButton) {
+      const zoneType = document.getElementById("zoneType")?.value || "";
+      saveButton.disabled = !dirty || current.length < 3 || !zoneType;
+    }
+  }
+
+  function resetDraft() {
+    current = [];
+    selectedZoneId = null;
+    document.getElementById("zoneName").value = "New Zone";
+    document.getElementById("zoneType").value = DEFAULT_ZONE_TYPE;
+    document.getElementById("zoneThreshold").value = DEFAULT_THRESHOLD_SECONDS;
+    updateThresholdVisibility();
+    setDraftDirty(false);
+    draw();
   }
 
   function drawPolygon(points, color, active) {
@@ -110,6 +137,7 @@
     } else {
       current.push(point);
       selectedZoneId = null;
+      setDraftDirty(true);
       draw();
     }
   });
@@ -117,6 +145,7 @@
   canvas.addEventListener("pointermove", (event) => {
     if (draggingIndex < 0) return;
     current[draggingIndex] = pointer(event);
+    setDraftDirty(true);
     draw();
   });
 
@@ -137,35 +166,26 @@
     const vertex = nearestVertex(pointer(event));
     if (vertex >= 0) {
       current.splice(vertex, 1);
+      setDraftDirty(true);
       draw();
     }
   });
 
-  document.getElementById("clearRoiButton")?.addEventListener("click", async () => {
-    if (selectedZoneId) {
-      await deleteZone(selectedZoneId);
-      window.SCT.toast("Zone deleted", selectedZoneId);
-      return;
-    }
-
-    if (zones.length && !current.length) {
-      await Promise.all(zones.map((zone) => deleteZone(zone.id, false)));
-      await loadZones();
-      window.SCT.toast("Zones cleared", "All saved ROI zones were deleted");
-      return;
-    }
-
-    current = [];
-    selectedZoneId = null;
-    draw();
+  document.getElementById("clearRoiButton")?.addEventListener("click", () => {
+    resetDraft();
+    window.SCT.toast("Draft discarded", "Saved ROI zones were not changed");
   });
 
-  document.getElementById("saveZoneButton")?.addEventListener("click", async () => {
+  saveButton?.addEventListener("click", async () => {
     if (current.length < 3) {
       window.SCT.toast("ROI incomplete", "Polygon needs at least 3 points");
       return;
     }
-    const zoneType = DEFAULT_ZONE_TYPE;
+    const zoneType = document.getElementById("zoneType").value || DEFAULT_ZONE_TYPE;
+    if (!zoneType) {
+      window.SCT.toast("Behavior required", "Select the rule this ROI should run");
+      return;
+    }
     const payload = {
       id: selectedZoneId || undefined,
       name: document.getElementById("zoneName").value || "Zone",
@@ -181,6 +201,7 @@
     });
     selectedZoneId = saved.id;
     await loadZones();
+    setDraftDirty(false);
     window.SCT.toast("Zone saved", saved.name);
   });
 
@@ -195,13 +216,14 @@
       document.getElementById("zoneName").value = zone.name || "Zone";
       const zoneTypeInput = document.getElementById("zoneType");
       if (zoneTypeInput && zoneTypeInput.type !== "hidden") {
-        zoneTypeInput.value = zone.behaviorType || zone.type || DEFAULT_ZONE_TYPE;
+        zoneTypeInput.value = zone.behaviorType || zone.type || FALLBACK_ZONE_TYPE;
       }
       const zoneThreshold = document.getElementById("zoneThreshold");
       if (zoneThreshold) {
         zoneThreshold.value = zone.threshold_seconds || DEFAULT_THRESHOLD_SECONDS;
       }
       updateThresholdVisibility();
+      setDraftDirty(false);
       draw();
     }
     if (deleteButton) {
@@ -216,8 +238,7 @@
       { method: "DELETE" }
     );
     if (selectedZoneId === zoneId) {
-      selectedZoneId = null;
-      current = [];
+      resetDraft();
     }
     if (reload) {
       await loadZones();
@@ -228,7 +249,7 @@
     const loadedZones = await window.SCT.request(`/api/cameras/${encodeURIComponent(cameraId)}/zones`);
     zones = loadedZones.map((zone) => ({
       ...zone,
-      behaviorType: zone.type || DEFAULT_ZONE_TYPE,
+      behaviorType: zone.type || FALLBACK_ZONE_TYPE,
       type: zoneTypeLabel(zone.type),
     }));
     renderZones();
@@ -260,7 +281,7 @@
   }
 
   function zoneTypeLabel(type) {
-    return ZONE_TYPE_LABELS[type] || type || DEFAULT_ZONE_TYPE;
+    return ZONE_TYPE_LABELS[type] || type || ZONE_TYPE_LABELS[FALLBACK_ZONE_TYPE];
   }
 
   function updateThresholdVisibility() {
@@ -282,7 +303,17 @@
   image.addEventListener("load", resize);
   window.addEventListener("resize", resize);
   document.getElementById("zoneType")?.addEventListener("change", updateThresholdVisibility);
+  for (const inputId of ["zoneName", "zoneType", "zoneThreshold"]) {
+    document.getElementById(inputId)?.addEventListener("input", () => setDraftDirty(true));
+    document.getElementById(inputId)?.addEventListener("change", () => setDraftDirty(true));
+  }
+  window.addEventListener("beforeunload", (event) => {
+    if (!draftDirty) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
   new ResizeObserver(resize).observe(image);
   updateThresholdVisibility();
+  setDraftDirty(false);
   loadZones().catch((error) => window.SCT.toast("Zone API error", error.message));
 })();
