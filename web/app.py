@@ -29,13 +29,27 @@ logger = get_logger(__name__)
 ALERT_CHANNELS = {"telegram", "discord"}
 MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
     "detection": {
-        "model": "yolo11s.pt",
+        "model": "yolo11n.pt",
         "confidence": 0.25,
+        "class_confidences": {
+            "backpack": 0.12,
+            "bicycle": 0.10,
+            "bus": 0.15,
+            "car": 0.15,
+            "cat": 0.12,
+            "dog": 0.12,
+            "handbag": 0.12,
+            "motorcycle": 0.10,
+            "person": 0.25,
+            "suitcase": 0.12,
+            "truck": 0.15,
+        },
         "classes": [0, 1, 2, 3, 5, 7, 24, 26, 28, 15, 16],
         "device": "cuda:0",
         "half": True,
-        "imgsz": 800,
+        "imgsz": 640,
         "iou": 0.55,
+        "person_max_aspect_ratio": 4.0,
     },
     "pose": {
         "enabled": True,
@@ -47,12 +61,29 @@ MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
     },
     "pipeline": {
         "frame_skip": 1,
-        "ai_max_fps": 10,
+        "ai_max_fps": 6,
         "processing_max_height": 720,
     },
     "tracking": {
-        "track_grace_frames": 15,
+        "track_high_thresh": 0.10,
+        "track_low_thresh": 0.05,
+        "new_track_thresh": 0.10,
+        "track_grace_frames": 3,
         "duplicate_iou_threshold": 0.85,
+        "duplicate_containment_threshold": 0.7,
+    },
+    "identity": {
+        "similarity_threshold": 0.45,
+        "detection_size": 480,
+        "min_face_size": 16,
+        "recognition_interval_frames": 3,
+        "unknown_confirmation_attempts": 5,
+        "known_memory_frames": 90,
+        "known_memory_distance_ratio": 0.18,
+        "known_memory_min_area_ratio": 0.25,
+        "orientations": ["none"],
+        "reference_orientations": ["none", "cw90", "ccw90", "180"],
+        "orientations_per_attempt": 1,
     },
 }
 
@@ -176,6 +207,7 @@ class RuntimeState:
             self.detector.use_half,
         )
         self.behavior_engine = BehaviorEngine(self.settings)
+        self.identity_resolver = self.behavior_engine.identity_resolver
         self.alert_manager = AlertManager(self.settings)
         self.pipelines: dict[str, CameraPipeline] = {}
 
@@ -354,6 +386,18 @@ class RuntimeState:
                 "name": str(payload.get("name") or existing.get("name") or camera_id),
                 "source": payload.get("source", existing.get("source", 0)),
                 "enabled": bool(payload.get("enabled", existing.get("enabled", True))),
+                "frame_rotation": str(
+                    payload.get("frame_rotation", existing.get("frame_rotation", "none"))
+                ),
+                "unknown_person_policy": str(
+                    payload.get(
+                        "unknown_person_policy",
+                        existing.get("unknown_person_policy", "face_match"),
+                    )
+                ),
+                "auto_global_zone": bool(
+                    payload.get("auto_global_zone", existing.get("auto_global_zone", True))
+                ),
                 "vision_profile": str(
                     payload.get(
                         "vision_profile",
@@ -490,6 +534,7 @@ class RuntimeState:
             )
             self.alert_manager.update_settings(self.settings)
             self.behavior_engine = BehaviorEngine(self.settings)
+            self.identity_resolver = self.behavior_engine.identity_resolver
             self.pose_estimator.update_settings(
                 self.settings,
                 device=self.detector.device,
@@ -502,7 +547,7 @@ class RuntimeState:
             for pipeline in self.pipelines.values():
                 pipeline.settings = self.settings
                 pipeline.pose_estimator = self.pose_estimator
-                pipeline.behavior_engine = self.behavior_engine
+                pipeline.behavior_engine = self._new_behavior_engine()
                 pipeline.frame_skip = max(1, int(pipeline_settings.get("frame_skip", 2)))
                 pipeline.ai_max_fps = max(0.0, float(pipeline_settings.get("ai_max_fps", 10)))
                 pipeline.reconnect_delay = float(pipeline_settings.get("reconnect_delay", 5))
@@ -532,6 +577,13 @@ class RuntimeState:
                         pipeline.tracker.duplicate_iou_threshold,
                     )
                 )
+                pipeline.tracker.duplicate_containment_threshold = float(
+                    self.settings.get("tracking", {}).get(
+                        "duplicate_containment_threshold",
+                        pipeline.tracker.duplicate_containment_threshold,
+                    )
+                )
+                pipeline.tracker.update_settings(self.settings)
         return copy.deepcopy(self.settings)
 
     def frame_buffer(self, camera_id: str) -> FrameBuffer | None:
@@ -561,7 +613,7 @@ class RuntimeState:
             )
         else:
             result.update({"status": "offline", "object_count": 0, "alert_count": 0, "error": None, "fps": 0.0})
-        result["line_counters"] = self.behavior_engine.get_counters(camera_id)
+        result["line_counters"] = self._behavior_engine_for(camera_id).get_counters(camera_id)
         with self._lock:
             result["detection_active"] = camera_id in self.pipelines
         return result
@@ -584,7 +636,7 @@ class RuntimeState:
             settings=self.settings,
             detector=self.detector,
             pose_estimator=self.pose_estimator,
-            behavior_engine=self.behavior_engine,
+            behavior_engine=self._new_behavior_engine(),
             frame_buffer=buffer,
             alert_manager=self.alert_manager,
         )
@@ -607,6 +659,17 @@ class RuntimeState:
             yaml.safe_dump(self._camera_config_for_disk(config), sort_keys=False, allow_unicode=True),
             encoding="utf-8",
         )
+
+    def _new_behavior_engine(self) -> BehaviorEngine:
+        return BehaviorEngine(
+            self.settings,
+            identity_resolver=self.identity_resolver,
+        )
+
+    def _behavior_engine_for(self, camera_id: str) -> BehaviorEngine:
+        with self._lock:
+            pipeline = self.pipelines.get(camera_id)
+        return pipeline.behavior_engine if pipeline else self.behavior_engine
 
     def _camera_config_for_disk(self, config: dict[str, Any]) -> dict[str, Any]:
         persisted = copy.deepcopy(config)

@@ -48,6 +48,7 @@ class SuspiciousTheftDetector:
         self.near_gap_reset_seconds = float(settings.get("near_gap_reset_seconds", 2))
         self.stale_seconds = float(settings.get("stale_seconds", 30))
         self._pairs: dict[tuple[str, str, int, int], _PairState] = {}
+        self._alerted_vehicle_signatures: set[tuple[str, str, str]] = set()
 
     def analyze(
         self,
@@ -64,8 +65,7 @@ class SuspiciousTheftDetector:
 
         watch_zones = [zone for zone in zones if zone.applies_to("asset_watch")]
         if not watch_zones:
-            self._clear_camera(camera_id)
-            return []
+            watch_zones = [_global_asset_watch_zone()]
 
         now = time.monotonic()
         alerts: list[dict[str, Any]] = []
@@ -139,8 +139,12 @@ class SuspiciousTheftDetector:
             return None
         if self.require_vehicle_signal and not vehicle_signal:
             return None
+        vehicle_signature = (camera_id, zone.id, vehicle.class_name)
+        if vehicle_signature in self._alerted_vehicle_signatures:
+            return None
 
         state.alerted = True
+        self._alerted_vehicle_signatures.add(vehicle_signature)
         details = (
             f"Unknown person stayed near {vehicle.class_name} for {near_seconds:.1f}s; "
             f"passes={state.pass_count}; behaviors={', '.join(sorted(behaviors))}"
@@ -298,6 +302,19 @@ class SuspiciousTheftDetector:
         for key in list(self._pairs):
             if key[0] == camera_id:
                 self._pairs.pop(key, None)
+        self._alerted_vehicle_signatures = {
+            key for key in self._alerted_vehicle_signatures if key[0] != camera_id
+        }
+
+
+def _global_asset_watch_zone() -> Zone:
+    return Zone(
+        id="global-asset-watch",
+        name="Full Frame",
+        zone_type="asset_watch",
+        polygon=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        threshold_seconds=None,
+    )
 
 
 def _motion_vector(history: list[tuple[float, float]], window: int = 8) -> tuple[float, float]:

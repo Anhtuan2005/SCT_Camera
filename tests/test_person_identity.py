@@ -117,7 +117,7 @@ class PersonIdentityTests(unittest.TestCase):
             np.zeros((240, 160, 3), dtype=np.uint8),
         )
 
-        self.assertEqual("stranger", labeled[0].identity_kind)
+        self.assertEqual(STRANGER_KIND, labeled[0].identity_kind)
 
     def test_known_track_uses_cache_without_repeated_inference(self) -> None:
         resolver, analyzer = _resolver([1.0, 0.0])
@@ -217,7 +217,7 @@ class PersonIdentityTests(unittest.TestCase):
         self.assertEqual("Alice", labeled[0].identity_label)
         self.assertEqual([(240, 160), (160, 240)], analyzer.calls)
 
-    def test_unmatched_person_stays_pending_before_confirmed_stranger(self) -> None:
+    def test_person_without_usable_face_becomes_stranger_after_confirmation_attempts(self) -> None:
         resolver = PersonIdentityResolver(
             {
                 "identity": {
@@ -245,6 +245,120 @@ class PersonIdentityTests(unittest.TestCase):
         self.assertEqual("Identifying", first[0].identity_label)
         self.assertEqual(STRANGER_KIND, second[0].identity_kind)
         self.assertEqual("Stranger", second[0].identity_label)
+
+    def test_assume_unknown_policy_labels_no_face_person_as_stranger(self) -> None:
+        resolver = PersonIdentityResolver(
+            {
+                "identity": {
+                    "enabled": True,
+                    "known_persons": [],
+                    "recognition_interval_frames": 1,
+                    "unknown_confirmation_attempts": 2,
+                }
+            }
+        )
+        resolver._face_app = _FakeFaceAnalyzer([])
+        resolver._ready = True
+        resolver.references = [
+            _Reference(
+                name="Alice",
+                embedding=np.array([1.0, 0.0], dtype=np.float32),
+            )
+        ]
+
+        labeled = resolver.label_objects(
+            "cam",
+            [_person(22)],
+            np.zeros((240, 160, 3), dtype=np.uint8),
+            assume_unknown_persons=True,
+        )
+
+        self.assertEqual(STRANGER_KIND, labeled[0].identity_kind)
+        self.assertEqual("Stranger", labeled[0].identity_label)
+
+    def test_assume_unknown_policy_overrides_face_match(self) -> None:
+        resolver, _analyzer = _resolver([1.0, 0.0])
+
+        labeled = resolver.label_objects(
+            "cam",
+            [_person(23)],
+            np.zeros((240, 160, 3), dtype=np.uint8),
+            assume_unknown_persons=True,
+        )
+
+        self.assertEqual(STRANGER_KIND, labeled[0].identity_kind)
+        self.assertEqual("Stranger", labeled[0].identity_label)
+
+    def test_face_bearing_unmatched_person_becomes_confirmed_stranger(self) -> None:
+        resolver, _analyzer = _resolver([0.0, 1.0])
+
+        labeled = resolver.label_objects(
+            "cam",
+            [_person(13)],
+            np.zeros((240, 160, 3), dtype=np.uint8),
+        )
+
+        self.assertEqual(STRANGER_KIND, labeled[0].identity_kind)
+        self.assertEqual("Stranger", labeled[0].identity_label)
+
+    def test_cached_stranger_stays_stranger_without_usable_face(self) -> None:
+        resolver, _analyzer = _resolver([0.0, 1.0])
+        resolver.recognition_interval = 1
+        frame = np.zeros((240, 160, 3), dtype=np.uint8)
+
+        first = resolver.label_objects("cam", [_person(15)], frame)
+        resolver._face_app = _FakeFaceAnalyzer([])
+        second = resolver.label_objects("cam", [_person(15)], frame)
+
+        self.assertEqual(STRANGER_KIND, first[0].identity_kind)
+        self.assertEqual(STRANGER_KIND, second[0].identity_kind)
+
+    def test_nearby_new_track_inherits_recent_known_identity(self) -> None:
+        resolver, _analyzer = _resolver([1.0, 0.0])
+        resolver.recognition_interval = 1
+        frame = np.zeros((240, 160, 3), dtype=np.uint8)
+
+        first = resolver.label_objects("cam", [_person(16)], frame)
+        resolver._face_app = _FakeFaceAnalyzer([])
+        second = resolver.label_objects(
+            "cam",
+            [_person(17, bbox=(4.0, 6.0, 104.0, 206.0))],
+            frame,
+        )
+
+        self.assertEqual("Alice", first[0].identity_label)
+        self.assertEqual("Alice", second[0].identity_label)
+        self.assertEqual("known_person", second[0].identity_kind)
+
+    def test_far_new_track_does_not_inherit_recent_known_identity(self) -> None:
+        resolver, _analyzer = _resolver([1.0, 0.0])
+        resolver.recognition_interval = 1
+        frame = np.zeros((240, 160, 3), dtype=np.uint8)
+
+        resolver.label_objects("cam", [_person(18)], frame)
+        resolver._face_app = _FakeFaceAnalyzer([])
+        labeled = resolver.label_objects(
+            "cam",
+            [_person(19, bbox=(700.0, 700.0, 800.0, 900.0))],
+            frame,
+        )
+
+        self.assertEqual(STRANGER_KIND, labeled[0].identity_kind)
+
+    def test_small_nearby_track_does_not_inherit_recent_known_identity(self) -> None:
+        resolver, _analyzer = _resolver([1.0, 0.0])
+        resolver.recognition_interval = 1
+        frame = np.zeros((240, 160, 3), dtype=np.uint8)
+
+        resolver.label_objects("cam", [_person(20)], frame)
+        resolver._face_app = _FakeFaceAnalyzer([])
+        labeled = resolver.label_objects(
+            "cam",
+            [_person(21, bbox=(68.0, 94.0, 105.0, 132.0))],
+            frame,
+        )
+
+        self.assertEqual(STRANGER_KIND, labeled[0].identity_kind)
 
     def test_pending_person_retries_without_waiting_recognition_interval(self) -> None:
         resolver = PersonIdentityResolver(
@@ -275,6 +389,21 @@ class PersonIdentityTests(unittest.TestCase):
         self.assertEqual(PENDING_PERSON_KIND, first[0].identity_kind)
         self.assertEqual(STRANGER_KIND, second[0].identity_kind)
         self.assertEqual(2, analyzer.calls)
+
+    def test_reference_images_can_use_different_orientations_than_live_stream(self) -> None:
+        resolver = PersonIdentityResolver(
+            {
+                "identity": {
+                    "enabled": True,
+                    "known_persons": [],
+                    "orientations": ["none"],
+                    "reference_orientations": ["cw90", "180"],
+                }
+            }
+        )
+
+        self.assertEqual(["none"], resolver.orientations)
+        self.assertEqual(["cw90", "180"], resolver.reference_orientations)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Full-frame unknown-person alert rule."""
+"""Unknown-person alert rule for candidate tracks."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from core.tracker import TrackedObject
 
 
 class UnknownPersonDetector:
-    """Alert once when an unknown person appears anywhere in the frame."""
+    """Alert once when a candidate track is confirmed as an unknown person."""
 
     def __init__(self) -> None:
         self._alerted: set[tuple[str, int]] = set()

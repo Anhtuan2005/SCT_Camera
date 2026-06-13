@@ -20,6 +20,7 @@ class Zone:
     zone_type: str
     polygon: list[Point]
     threshold_seconds: float | None = None
+    auto_generated: bool = False
 
     @classmethod
     def from_config(cls, data: dict[str, Any]) -> "Zone":
@@ -35,6 +36,7 @@ class Zone:
                 if data.get("threshold_seconds") is not None
                 else None
             ),
+            auto_generated=bool(data.get("auto_generated", False)),
         )
 
     def pixel_polygon(self, frame_shape: tuple[int, int, int] | tuple[int, int]) -> np.ndarray:

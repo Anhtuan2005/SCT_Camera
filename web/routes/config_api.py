@@ -17,6 +17,11 @@ class CameraPayload(BaseModel):
     name: str
     source: str | int
     enabled: bool = True
+    frame_rotation: str | None = Field(default=None, pattern="^(none|cw90|ccw90|180)$")
+    unknown_person_policy: str | None = Field(
+        default=None,
+        pattern="^(face_match|assume_stranger|unknown_by_default|all_unknown)$",
+    )
     notification_channels: list[str] | None = None
 
 

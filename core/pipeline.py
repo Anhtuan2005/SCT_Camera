@@ -6,6 +6,7 @@ import copy
 import os
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,16 @@ from utils.drawing import draw_annotations
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class _AnalysisSnapshot:
+    objects: list[TrackedObject]
+    counters: dict[str, Any]
+    person_timer_states: dict[int, dict[str, Any]]
+    new_alert_count: int
+    annotated_frame: Any | None
+    result_id: int
 
 
 class CameraPipeline:
@@ -61,7 +72,10 @@ class CameraPipeline:
         self._last_analysis_started_at = 0.0
         self._latest_objects: list[TrackedObject] = []
         self._latest_counters: dict[str, Any] = {}
-        self._latest_person_timer_states: dict[str, Any] = {}
+        self._latest_person_timer_states: dict[int, dict[str, Any]] = {}
+        self._latest_annotated_frame: Any | None = None
+        self._latest_analysis_result_id = 0
+        self._published_analysis_result_id = 0
         self._pending_alert_count = 0
 
         pipeline_settings = settings.get("pipeline", {})
@@ -144,6 +158,7 @@ class CameraPipeline:
             self.frame_buffer.set_status("connecting", "Waiting for first frame")
             self.tracker.reset()
             self._reset_analysis_state()
+            frame_index = 0
 
             try:
                 is_video_file = self._is_video_file_source(source)
@@ -163,24 +178,30 @@ class CameraPipeline:
                         self.frame_buffer.set_status("offline", "Camera disconnected")
                         break
 
+                    config = self._get_config()
+                    frame = self._apply_frame_rotation(frame, config)
                     frame = self._resize_for_processing(frame)
                     frame_index += 1
-                    config = self._get_config()
-                    self._submit_analysis_if_due(frame, config, camera_id, frame_index, time.monotonic())
-                    last_objects, counters, person_timer_states, new_alert_count = self._analysis_snapshot()
-                    annotated = draw_annotations(
-                        frame,
-                        last_objects,
-                        config,
-                        counters,
-                        person_timer_states,
-                    )
-                    self.frame_buffer.update(
-                        annotated,
-                        object_count=len(last_objects),
-                        new_alert_count=new_alert_count,
-                        status="online",
-                    )
+                    now = time.monotonic()
+                    if frame_index == 1:
+                        self._run_analysis_sync(frame, config, camera_id, now)
+                    else:
+                        self._submit_analysis_if_due(frame, config, camera_id, frame_index, now)
+                    snapshot = self._analysis_snapshot()
+                    if self._should_publish_snapshot(snapshot):
+                        annotated = self._display_frame_for_snapshot(
+                            frame,
+                            config,
+                            snapshot,
+                        )
+                        self.frame_buffer.update(
+                            annotated,
+                            object_count=len(snapshot.objects),
+                            new_alert_count=snapshot.new_alert_count,
+                            status="online",
+                        )
+                        if snapshot.annotated_frame is not None:
+                            self._published_analysis_result_id = snapshot.result_id
 
                     if frame_interval > 0:
                         next_frame_at += frame_interval
@@ -210,6 +231,9 @@ class CameraPipeline:
             self._latest_objects = []
             self._latest_counters = {}
             self._latest_person_timer_states = {}
+            self._latest_annotated_frame = None
+            self._latest_analysis_result_id = 0
+            self._published_analysis_result_id = 0
             self._pending_alert_count = 0
 
     def _submit_analysis_if_due(
@@ -247,6 +271,25 @@ class CameraPipeline:
         thread.start()
         return True
 
+    def _run_analysis_sync(
+        self,
+        frame: Any,
+        config: dict[str, Any],
+        camera_id: str,
+        now: float,
+    ) -> bool:
+        with self._analysis_state_lock:
+            if self._analysis_inflight:
+                return False
+            self._analysis_inflight = True
+            self._last_analysis_started_at = now
+            self._analysis_token += 1
+            token = self._analysis_token
+            generation = self._analysis_generation
+
+        self._analyze_frame(frame.copy(), copy.deepcopy(config), camera_id, token, generation)
+        return True
+
     @staticmethod
     def _analysis_due(
         frame_index: int,
@@ -261,18 +304,40 @@ class CameraPipeline:
             return True
         return now - last_analysis_started_at >= 1.0 / ai_max_fps
 
-    def _analysis_snapshot(
-        self,
-    ) -> tuple[list[TrackedObject], dict[str, Any], dict[str, Any], int]:
+    def _analysis_snapshot(self) -> _AnalysisSnapshot:
         with self._analysis_state_lock:
             pending_alert_count = self._pending_alert_count
             self._pending_alert_count = 0
-            return (
-                list(self._latest_objects),
-                copy.deepcopy(self._latest_counters),
-                copy.deepcopy(self._latest_person_timer_states),
-                pending_alert_count,
+            return _AnalysisSnapshot(
+                objects=list(self._latest_objects),
+                counters=copy.deepcopy(self._latest_counters),
+                person_timer_states=copy.deepcopy(self._latest_person_timer_states),
+                new_alert_count=pending_alert_count,
+                annotated_frame=self._latest_annotated_frame,
+                result_id=self._latest_analysis_result_id,
             )
+
+    def _should_publish_snapshot(self, snapshot: _AnalysisSnapshot) -> bool:
+        return (
+            snapshot.annotated_frame is None
+            or snapshot.result_id != self._published_analysis_result_id
+        )
+
+    @staticmethod
+    def _display_frame_for_snapshot(
+        frame: Any,
+        config: dict[str, Any],
+        snapshot: _AnalysisSnapshot,
+    ) -> Any:
+        if snapshot.annotated_frame is not None:
+            return snapshot.annotated_frame
+        return draw_annotations(
+            frame,
+            [],
+            config,
+            snapshot.counters,
+            snapshot.person_timer_states,
+        )
 
     def _analyze_frame(
         self,
@@ -284,13 +349,32 @@ class CameraPipeline:
     ) -> None:
         try:
             behavior_engine = self.behavior_engine
+            t0 = time.monotonic()
             objects = self.tracker.track(frame)
+            t1 = time.monotonic()
             if self._pose_needed(config, self.settings):
                 objects = self.pose_estimator.attach(frame, objects)
+            t2 = time.monotonic()
             objects = behavior_engine.label_objects(objects, config, frame)
+            t3 = time.monotonic()
             alerts = behavior_engine.analyze(objects, config, frame.shape)
+            t4 = time.monotonic()
             counters = behavior_engine.get_counters(camera_id)
             person_timer_states = behavior_engine.get_person_timer_states(camera_id)
+            logger.debug(
+                (
+                    "Analysis %s: track=%.0fms pose=%.0fms identity=%.0fms "
+                    "behavior=%.0fms total=%.0fms objs=%d alerts=%d"
+                ),
+                camera_id,
+                (t1 - t0) * 1000,
+                (t2 - t1) * 1000,
+                (t3 - t2) * 1000,
+                (t4 - t3) * 1000,
+                (t4 - t0) * 1000,
+                len(objects),
+                len(alerts),
+            )
 
             with self._analysis_state_lock:
                 if generation != self._analysis_generation:
@@ -314,6 +398,8 @@ class CameraPipeline:
                 self._latest_objects = objects
                 self._latest_counters = counters
                 self._latest_person_timer_states = person_timer_states
+                self._latest_annotated_frame = annotated
+                self._latest_analysis_result_id += 1
                 self._pending_alert_count += len(alerts)
         except Exception as exc:
             logger.exception("Camera %s processing error: %s", camera_id, exc)
@@ -383,6 +469,18 @@ class CameraPipeline:
         scale = self.processing_max_height / float(height)
         size = (max(1, int(width * scale)), self.processing_max_height)
         return cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
+
+    @staticmethod
+    def _apply_frame_rotation(frame: Any, config: dict[str, Any]) -> Any:
+        """Rotate a camera frame before AI and drawing when a camera is mounted sideways."""
+        rotation = str(config.get("frame_rotation", "none")).strip().lower()
+        if rotation == "cw90":
+            return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        if rotation == "ccw90":
+            return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        if rotation == "180":
+            return cv2.rotate(frame, cv2.ROTATE_180)
+        return frame
 
     @staticmethod
     def _is_video_file_source(source: int | str) -> bool:

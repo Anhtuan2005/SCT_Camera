@@ -60,6 +60,43 @@ class ByteTrackCameraMotionTests(unittest.TestCase):
         self.assertTrue(tracker.cmc_enabled)
         self.assertTrue(hasattr(tracker._tracker, "gmc"))
 
+    def test_tracker_threshold_overrides_are_applied(self) -> None:
+        tracker = ByteTrackTracker(
+            _FakeDetector(),
+            {
+                "tracking": {
+                    "tracker": "bytetrack.yaml",
+                    "track_high_thresh": 0.12,
+                    "track_low_thresh": 0.05,
+                    "new_track_thresh": 0.12,
+                }
+            },
+        )
+
+        self.assertEqual(0.12, tracker._tracker.args.track_high_thresh)
+        self.assertEqual(0.05, tracker._tracker.args.track_low_thresh)
+        self.assertEqual(0.12, tracker._tracker.args.new_track_thresh)
+
+    def test_tracker_threshold_overrides_update_existing_args(self) -> None:
+        tracker = ByteTrackTracker(
+            _FakeDetector(),
+            {"tracking": {"tracker": "bytetrack.yaml"}},
+        )
+
+        tracker.update_settings(
+            {
+                "tracking": {
+                    "track_high_thresh": 0.12,
+                    "track_low_thresh": 0.05,
+                    "new_track_thresh": 0.12,
+                }
+            }
+        )
+
+        self.assertEqual(0.12, tracker._tracker.args.track_high_thresh)
+        self.assertEqual(0.05, tracker._tracker.args.track_low_thresh)
+        self.assertEqual(0.12, tracker._tracker.args.new_track_thresh)
+
     def test_tracker_output_is_converted_to_tracked_object(self) -> None:
         detector = _FakeDetector()
         detector.detections = [
@@ -107,6 +144,41 @@ class ByteTrackCameraMotionTests(unittest.TestCase):
         self.assertEqual(2, len(objects))
         self.assertEqual({"person", "dog"}, {obj.class_name for obj in objects})
         self.assertEqual(2, len({obj.track_id for obj in objects}))
+
+    def test_nested_same_class_boxes_are_deduped_even_when_iou_is_low(self) -> None:
+        tracker = ByteTrackTracker(
+            _FakeDetector(),
+            {"tracking": {"tracker": "bytetrack.yaml"}},
+        )
+        tracker._tracker = MagicMock()
+        tracker._tracker.update.return_value = np.asarray(
+            [
+                [0.0, 0.0, 100.0, 100.0, 1.0, 0.75, 0.0, 0.0],
+                [10.0, 10.0, 60.0, 60.0, 2.0, 0.95, 0.0, 0.0],
+            ],
+            dtype=np.float32,
+        )
+
+        objects = tracker.track(np.zeros((120, 120, 3), dtype=np.uint8))
+
+        self.assertEqual(1, len(objects))
+
+    def test_stale_track_expires_after_grace_frames(self) -> None:
+        tracker = ByteTrackTracker(
+            _FakeDetector(),
+            {"tracking": {"tracker": "bytetrack.yaml", "track_grace_frames": 1}},
+        )
+        tracker._tracker = MagicMock()
+        tracker._tracker.update.return_value = np.asarray(
+            [[10.0, 20.0, 30.0, 60.0, 7.0, 0.9, 0.0, 0.0]],
+            dtype=np.float32,
+        )
+        tracker.track(np.zeros((100, 100, 3), dtype=np.uint8))
+
+        tracker._tracker.update.return_value = np.empty((0, 8), dtype=np.float32)
+
+        self.assertEqual(1, len(tracker.track(np.zeros((100, 100, 3), dtype=np.uint8))))
+        self.assertEqual([], tracker.track(np.zeros((100, 100, 3), dtype=np.uint8)))
 
     def test_reset_clears_local_history_and_gmc_state(self) -> None:
         tracker = ByteTrackTracker(

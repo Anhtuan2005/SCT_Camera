@@ -26,9 +26,11 @@
       </div>
 
       <div class="editor-stage">
-        <img id="editorStream" class="detail-stream" src="/api/stream/{{ camera.camera_id }}" alt="{{ camera.name }} live stream">
-        <canvas id="roiCanvas" class="editor-canvas active"></canvas>
-        <canvas id="lineCanvas" class="editor-canvas"></canvas>
+        <div class="stream-editor-frame">
+          <img id="editorStream" class="detail-stream" src="/api/stream/{{ camera.camera_id }}" alt="{{ camera.name }} live stream">
+          <canvas id="roiCanvas" class="editor-canvas active"></canvas>
+          <canvas id="lineCanvas" class="editor-canvas"></canvas>
+        </div>
       </div>
 
       <div class="segmented-control" role="tablist" aria-label="Editor mode">

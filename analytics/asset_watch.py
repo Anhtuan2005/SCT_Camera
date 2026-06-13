@@ -51,6 +51,7 @@ class AssetWatchDetector:
         self.interaction_distance_ratio = float(settings.get("interaction_distance_ratio", 0.22))
         self.cleanup_seconds = float(settings.get("cleanup_seconds", 90))
         self._assets: dict[tuple[str, str, int], _AssetState] = {}
+        self._alerted_assets: set[tuple[str, str, str]] = set()
 
     def analyze(
         self,
@@ -64,8 +65,7 @@ class AssetWatchDetector:
         """Return possible asset-removal alerts for asset-watch zones."""
         watch_zones = [zone for zone in zones if zone.applies_to("asset_watch")]
         if not watch_zones:
-            self._clear_camera(camera_id)
-            return []
+            watch_zones = [_global_asset_watch_zone()]
 
         now = time.monotonic()
         alerts: list[dict[str, Any]] = []
@@ -264,12 +264,16 @@ class AssetWatchDetector:
     ) -> dict[str, Any] | None:
         if state.alerted:
             return None
+        asset_signature = (camera_id, zone.id, state.class_name)
+        if asset_signature in self._alerted_assets:
+            return None
         if now - state.first_seen < self.min_presence_seconds:
             return None
         if now - state.last_person_near > self.person_window_seconds:
             return None
 
         state.alerted = True
+        self._alerted_assets.add(asset_signature)
         actor = state.person_label or "unknown person"
         return {
             "type": alert_type,
@@ -364,3 +368,16 @@ class AssetWatchDetector:
         for key in list(self._assets):
             if key[0] == camera_id:
                 self._assets.pop(key, None)
+        self._alerted_assets = {
+            key for key in self._alerted_assets if key[0] != camera_id
+        }
+
+
+def _global_asset_watch_zone() -> Zone:
+    return Zone(
+        id="global-asset-watch",
+        name="Full Frame",
+        zone_type="asset_watch",
+        polygon=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        threshold_seconds=None,
+    )

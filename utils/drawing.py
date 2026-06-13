@@ -86,7 +86,11 @@ def _draw_object(
     obj: TrackedObject,
     person_timer_state: dict[str, Any] | None = None,
 ) -> None:
+    h, w = frame.shape[:2]
     x1, y1, x2, y2 = [int(round(value)) for value in obj.bbox_xyxy]
+    x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w - 1, x2), min(h - 1, y2)
+    if x2 <= x1 or y2 <= y1:
+        return
     color = _color_for_id(obj.track_id)
     thickness = _line_thickness(frame)
     shadow = max(thickness + 1, 3)

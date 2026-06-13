@@ -28,6 +28,14 @@ class _Reference:
     embedding: np.ndarray
 
 
+@dataclass(frozen=True)
+class _KnownIdentityMemory:
+    label: str
+    score: float | None
+    bbox_xyxy: tuple[float, float, float, float]
+    frame_number: int
+
+
 class PersonIdentityResolver:
     """Assign person names with InsightFace and stable labels to animal classes."""
 
@@ -49,6 +57,17 @@ class PersonIdentityResolver:
             1,
             int(identity.get("recognition_interval_frames", 5)),
         )
+        self.known_memory_frames = max(
+            0,
+            int(identity.get("known_memory_frames", 90)),
+        )
+        self.known_memory_distance_ratio = float(
+            identity.get("known_memory_distance_ratio", 0.18)
+        )
+        self.known_memory_min_area_ratio = max(
+            0.0,
+            min(1.0, float(identity.get("known_memory_min_area_ratio", 0.25))),
+        )
         self.model_name = str(identity.get("model", "buffalo_l"))
         self.device = str(identity.get("device", "auto")).lower()
         self.det_size = self._parse_detection_size(
@@ -56,6 +75,9 @@ class PersonIdentityResolver:
         )
         self.orientations = self._parse_orientations(
             identity.get("orientations", ["none", "cw90", "ccw90", "180"])
+        )
+        self.reference_orientations = self._parse_orientations(
+            identity.get("reference_orientations", ["none", "cw90", "ccw90", "180"])
         )
         self.orientations_per_attempt = max(
             1,
@@ -89,6 +111,10 @@ class PersonIdentityResolver:
         self._camera_frame_counts: dict[str, int] = {}
         self._last_attempt_frame: dict[tuple[str, int], int] = {}
         self._camera_orientation_offsets: dict[str, int] = {}
+        self._known_identity_memory: dict[
+            tuple[str, str],
+            _KnownIdentityMemory,
+        ] = {}
 
         if self.enabled and self.known_people:
             self._ensure_ready()
@@ -98,6 +124,7 @@ class PersonIdentityResolver:
         camera_id: str,
         objects: list[TrackedObject],
         frame_bgr: np.ndarray,
+        assume_unknown_persons: bool = False,
     ) -> list[TrackedObject]:
         """Return objects with identity fields filled in."""
         active_keys = {
@@ -109,6 +136,7 @@ class PersonIdentityResolver:
 
         frame_number = self._camera_frame_counts.get(camera_id, 0) + 1
         self._camera_frame_counts[camera_id] = frame_number
+        self._remove_stale_identity_memory(camera_id, frame_number)
         unresolved = [
             obj
             for obj in objects
@@ -118,12 +146,15 @@ class PersonIdentityResolver:
         ]
 
         matches: dict[int, tuple[str, float]] = {}
+        recognition_attempted = False
         if (
             unresolved
+            and not assume_unknown_persons
             and self.enabled
             and self._recognition_due(camera_id, unresolved, frame_number)
             and self._ensure_ready()
         ):
+            recognition_attempted = True
             matches = self._match_people(camera_id, unresolved, frame_bgr)
             for obj in unresolved:
                 key = (camera_id, obj.track_id)
@@ -153,11 +184,29 @@ class PersonIdentityResolver:
 
             key = (camera_id, obj.track_id)
             cached = self._track_cache.get(key)
-            if cached and cached[1] == KNOWN_PERSON_KIND:
+            if assume_unknown_persons:
+                label = self.unknown_label
+                kind = STRANGER_KIND
+                score = None
+                self._track_cache[key] = (label, kind, score)
+                self._failed_attempt_counts.pop(key, None)
+            elif cached and cached[1] == KNOWN_PERSON_KIND:
                 label, kind, score = cached
             elif obj.track_id in matches:
                 label, score = matches[obj.track_id]
                 kind = KNOWN_PERSON_KIND
+                self._track_cache[key] = (label, kind, score)
+            elif (
+                memory := self._known_memory_match(
+                    camera_id,
+                    obj,
+                    frame_bgr.shape,
+                    frame_number,
+                )
+            ) is not None:
+                label = memory.label
+                kind = KNOWN_PERSON_KIND
+                score = memory.score
                 self._track_cache[key] = (label, kind, score)
             elif self._identity_still_pending(key):
                 label = self.pending_label
@@ -168,15 +217,22 @@ class PersonIdentityResolver:
                 label = self.unknown_label
                 kind = STRANGER_KIND
                 score = None
+                if cached is None or cached[1] != STRANGER_KIND:
+                    logger.info(
+                        "Track %d confirmed as Stranger after %d failed attempt(s)",
+                        obj.track_id,
+                        self._failed_attempt_counts.get(key, 0),
+                    )
                 self._track_cache[key] = (label, kind, score)
-            labeled.append(
-                replace(
-                    obj,
-                    identity_label=label,
-                    identity_kind=kind,
-                    identity_score=score,
-                )
+            labeled_obj = replace(
+                obj,
+                identity_label=label,
+                identity_kind=kind,
+                identity_score=score,
             )
+            if kind == KNOWN_PERSON_KIND:
+                self._remember_known_identity(camera_id, labeled_obj, frame_number)
+            labeled.append(labeled_obj)
         return labeled
 
     def _recognition_due(
@@ -214,6 +270,70 @@ class PersonIdentityResolver:
             self._last_attempt_frame.pop(key, None)
             self._failed_attempt_counts.pop(key, None)
 
+    def _remember_known_identity(
+        self,
+        camera_id: str,
+        obj: TrackedObject,
+        frame_number: int,
+    ) -> None:
+        if not obj.identity_label:
+            return
+        self._known_identity_memory[(camera_id, obj.identity_label)] = (
+            _KnownIdentityMemory(
+                label=obj.identity_label,
+                score=obj.identity_score,
+                bbox_xyxy=obj.bbox_xyxy,
+                frame_number=frame_number,
+            )
+        )
+
+    def _known_memory_match(
+        self,
+        camera_id: str,
+        obj: TrackedObject,
+        frame_shape: tuple[int, ...],
+        frame_number: int,
+    ) -> _KnownIdentityMemory | None:
+        if self.known_memory_frames <= 0:
+            return None
+        best_memory: _KnownIdentityMemory | None = None
+        best_rank = -1.0
+        for key, memory in self._known_identity_memory.items():
+            if key[0] != camera_id:
+                continue
+            if frame_number - memory.frame_number > self.known_memory_frames:
+                continue
+            overlap = _bbox_iou(obj.bbox_xyxy, memory.bbox_xyxy)
+            area_ratio = _bbox_area_ratio(obj.bbox_xyxy, memory.bbox_xyxy)
+            distance = self._bbox_center_distance_ratio(
+                obj.bbox_xyxy,
+                memory.bbox_xyxy,
+                frame_shape,
+            )
+            if area_ratio < self.known_memory_min_area_ratio and overlap < 0.25:
+                continue
+            if overlap <= 0.03 and distance > self.known_memory_distance_ratio:
+                continue
+            rank = max(overlap, 1.0 - distance)
+            if rank > best_rank:
+                best_rank = rank
+                best_memory = memory
+        return best_memory
+
+    def _remove_stale_identity_memory(
+        self,
+        camera_id: str,
+        frame_number: int,
+    ) -> None:
+        stale_keys = [
+            key
+            for key, memory in self._known_identity_memory.items()
+            if key[0] == camera_id
+            and frame_number - memory.frame_number > self.known_memory_frames
+        ]
+        for key in stale_keys:
+            self._known_identity_memory.pop(key, None)
+
     def _identity_still_pending(self, key: tuple[str, int]) -> bool:
         if not self.enabled or not self.references:
             return False
@@ -221,6 +341,21 @@ class PersonIdentityResolver:
             self._failed_attempt_counts.get(key, 0)
             < self.unknown_confirmation_attempts
         )
+
+    @staticmethod
+    def _bbox_center_distance_ratio(
+        first: tuple[float, float, float, float],
+        second: tuple[float, float, float, float],
+        frame_shape: tuple[int, ...],
+    ) -> float:
+        height, width = frame_shape[:2]
+        diagonal = max((float(width) ** 2 + float(height) ** 2) ** 0.5, 1.0)
+        first_center = ((first[0] + first[2]) / 2.0, (first[1] + first[3]) / 2.0)
+        second_center = ((second[0] + second[2]) / 2.0, (second[1] + second[3]) / 2.0)
+        return (
+            (first_center[0] - second_center[0]) ** 2
+            + (first_center[1] - second_center[1]) ** 2
+        ) ** 0.5 / diagonal
 
     def _ensure_ready(self) -> bool:
         if self._ready:
@@ -284,26 +419,53 @@ class PersonIdentityResolver:
             self._orientation_batch(camera_id),
         ):
             if not faces:
+                logger.debug(
+                    "No faces detected in orientation %s for camera %s",
+                    orientation,
+                    camera_id,
+                )
                 continue
             for face in sorted(faces, key=self._face_quality, reverse=True):
                 face_bbox = self._face_bbox(face)
                 embedding = self._face_embedding(face)
                 if face_bbox is None or embedding is None:
                     continue
-                if self._face_detection_score(face) < self.min_detection_score:
+                detection_score = self._face_detection_score(face)
+                if detection_score < self.min_detection_score:
                     continue
                 face_width = face_bbox[2] - face_bbox[0]
                 face_height = face_bbox[3] - face_bbox[1]
                 if min(face_width, face_height) < self.min_face_size:
+                    logger.debug(
+                        "Face too small (%.0fx%.0f < %d min) for track matching",
+                        face_width,
+                        face_height,
+                        self.min_face_size,
+                    )
                     continue
 
                 person = self._person_for_face(face_bbox, people, set(matches))
                 if person is None:
                     continue
-                reference_match = self._best_reference_match(embedding)
-                if reference_match is not None:
-                    matches[person.track_id] = reference_match
+                best_name, best_score = self._best_reference_score(embedding)
+                if best_score >= self.threshold:
+                    matches[person.track_id] = (best_name, best_score)
                     matched_orientation = orientation
+                    logger.debug(
+                        "Face match result for track %d: %s (score=%.3f, threshold=%.3f)",
+                        person.track_id,
+                        best_name,
+                        best_score,
+                        self.threshold,
+                    )
+                else:
+                    logger.debug(
+                        "Best match for track %d: %s score=%.3f (threshold=%.3f) - rejected",
+                        person.track_id,
+                        best_name,
+                        best_score,
+                        self.threshold,
+                    )
             if len(matches) >= len(people):
                 break
         self._update_orientation_offset(camera_id, matched_orientation)
@@ -312,7 +474,7 @@ class PersonIdentityResolver:
     def _analyze_faces(self, image_bgr: np.ndarray) -> list[Any]:
         for _orientation, faces in self._analyze_face_sets(
             image_bgr,
-            self.orientations,
+            self.reference_orientations,
         ):
             if faces:
                 return faces
@@ -443,6 +605,12 @@ class PersonIdentityResolver:
         self,
         embedding: np.ndarray,
     ) -> tuple[str, float] | None:
+        best_name, best_score = self._best_reference_score(embedding)
+        if best_score >= self.threshold:
+            return best_name, best_score
+        return None
+
+    def _best_reference_score(self, embedding: np.ndarray) -> tuple[str, float]:
         best_name = ""
         best_score = -1.0
         for reference in self.references:
@@ -450,9 +618,7 @@ class PersonIdentityResolver:
             if score > best_score:
                 best_name = reference.name
                 best_score = score
-        if best_score >= self.threshold:
-            return best_name, best_score
-        return None
+        return best_name, best_score
 
     def _load_references(self, known_people: list[Any]) -> list[_Reference]:
         references: list[_Reference] = []
@@ -642,3 +808,37 @@ class PersonIdentityResolver:
             else:
                 paths.append(path)
         return paths
+
+
+def _bbox_iou(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    left = max(first[0], second[0])
+    top = max(first[1], second[1])
+    right = min(first[2], second[2])
+    bottom = min(first[3], second[3])
+    width = max(0.0, right - left)
+    height = max(0.0, bottom - top)
+    intersection = width * height
+    if intersection <= 0:
+        return 0.0
+
+    first_area = max(0.0, first[2] - first[0]) * max(0.0, first[3] - first[1])
+    second_area = max(0.0, second[2] - second[0]) * max(0.0, second[3] - second[1])
+    union = first_area + second_area - intersection
+    if union <= 0:
+        return 0.0
+    return intersection / union
+
+
+def _bbox_area_ratio(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    first_area = max(0.0, first[2] - first[0]) * max(0.0, first[3] - first[1])
+    second_area = max(0.0, second[2] - second[0]) * max(0.0, second[3] - second[1])
+    larger = max(first_area, second_area)
+    if larger <= 0:
+        return 0.0
+    return min(first_area, second_area) / larger

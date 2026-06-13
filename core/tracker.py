@@ -14,6 +14,15 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+_TRACKER_ARG_TYPES: dict[str, type] = {
+    "track_high_thresh": float,
+    "track_low_thresh": float,
+    "new_track_thresh": float,
+    "track_buffer": int,
+    "match_thresh": float,
+}
+
+
 @dataclass(frozen=True)
 class _TrackerDetections:
     """NumPy detection view expected by Ultralytics BYTETracker."""
@@ -82,6 +91,10 @@ class ByteTrackTracker:
         self.history_length = int(tracking_settings.get("track_history_length", 50))
         self.grace_frames = int(tracking_settings.get("track_grace_frames", 8))
         self.duplicate_iou_threshold = float(tracking_settings.get("duplicate_iou_threshold", 0.85))
+        self.duplicate_containment_threshold = float(
+            tracking_settings.get("duplicate_containment_threshold", 0.7)
+        )
+        self.tracker_arg_overrides = _parse_tracker_arg_overrides(tracking_settings)
         cmc_settings = tracking_settings.get("camera_motion_compensation", {})
         self.cmc_enabled = bool(cmc_settings.get("enabled", False))
         self.cmc_method = str(cmc_settings.get("method", "sparseOptFlow"))
@@ -151,6 +164,27 @@ class ByteTrackTracker:
         self._track_alias_keys.clear()
         self._next_track_alias = 1
 
+    def update_settings(self, settings: dict[str, Any]) -> None:
+        """Apply mutable tracker settings without rebuilding the pipeline."""
+        tracking_settings = settings.get("tracking", {})
+        self.grace_frames = int(
+            tracking_settings.get("track_grace_frames", self.grace_frames)
+        )
+        self.duplicate_iou_threshold = float(
+            tracking_settings.get(
+                "duplicate_iou_threshold",
+                self.duplicate_iou_threshold,
+            )
+        )
+        self.duplicate_containment_threshold = float(
+            tracking_settings.get(
+                "duplicate_containment_threshold",
+                self.duplicate_containment_threshold,
+            )
+        )
+        self.tracker_arg_overrides = _parse_tracker_arg_overrides(tracking_settings)
+        self._apply_tracker_arg_overrides(self._tracker)
+
     def _app_track_id(self, raw_track_id: int, class_id: int) -> int:
         key = (class_id, raw_track_id)
         existing = self._track_id_aliases.get(key)
@@ -176,12 +210,16 @@ class ByteTrackTracker:
         from ultralytics.utils.checks import check_yaml
 
         config_path = check_yaml(self.tracker_config)
-        args = IterableSimpleNamespace(**yaml_load(config_path))
+        tracker_args = yaml_load(config_path)
+        tracker_args.update(self.tracker_arg_overrides)
+        args = IterableSimpleNamespace(**tracker_args)
         if str(args.tracker_type).lower() != "bytetrack":
             raise ValueError(
                 f"ByteTrackTracker requires tracker_type=bytetrack, got {args.tracker_type}"
             )
 
+        if self.tracker_arg_overrides:
+            logger.info("ByteTrack threshold overrides: %s", self.tracker_arg_overrides)
         tracker = BYTETracker(args=args, frame_rate=30)
         if self.cmc_enabled:
             tracker.gmc = _SafeGMC(self.cmc_method, self.cmc_downscale)
@@ -191,6 +229,13 @@ class ByteTrackTracker:
                 self.cmc_downscale,
             )
         return tracker
+
+    def _apply_tracker_arg_overrides(self, tracker: Any) -> None:
+        args = getattr(tracker, "args", None)
+        if args is None:
+            return
+        for key, value in self.tracker_arg_overrides.items():
+            setattr(args, key, value)
 
     @staticmethod
     def _to_tracker_detections(detections: list[Detection]) -> _TrackerDetections:
@@ -245,7 +290,12 @@ class ByteTrackTracker:
     def _overlaps_any_same_class(self, obj: TrackedObject, others: list[TrackedObject]) -> bool:
         return any(
             obj.class_id == other.class_id
-            and _bbox_iou(obj.bbox_xyxy, other.bbox_xyxy) >= self.duplicate_iou_threshold
+            and (
+                _bbox_iou(obj.bbox_xyxy, other.bbox_xyxy)
+                >= self.duplicate_iou_threshold
+                or _bbox_containment_ratio(obj.bbox_xyxy, other.bbox_xyxy)
+                >= self.duplicate_containment_threshold
+            )
             for other in others
         )
 
@@ -270,3 +320,42 @@ def _bbox_iou(
     if union <= 0:
         return 0.0
     return intersection / union
+
+
+def _bbox_containment_ratio(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    left = max(first[0], second[0])
+    top = max(first[1], second[1])
+    right = min(first[2], second[2])
+    bottom = min(first[3], second[3])
+    width = max(0.0, right - left)
+    height = max(0.0, bottom - top)
+    intersection = width * height
+    if intersection <= 0:
+        return 0.0
+
+    first_area = max(0.0, first[2] - first[0]) * max(0.0, first[3] - first[1])
+    second_area = max(0.0, second[2] - second[0]) * max(0.0, second[3] - second[1])
+    smaller_area = min(first_area, second_area)
+    if smaller_area <= 0:
+        return 0.0
+    return intersection / smaller_area
+
+
+def _parse_tracker_arg_overrides(
+    tracking_settings: dict[str, Any],
+) -> dict[str, float | int]:
+    overrides: dict[str, float | int] = {}
+    for key, value_type in _TRACKER_ARG_TYPES.items():
+        if key not in tracking_settings:
+            continue
+        try:
+            parsed = value_type(tracking_settings[key])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(parsed, (float, int)) and parsed < 0:
+            continue
+        overrides[key] = parsed
+    return overrides

@@ -30,8 +30,14 @@ class YOLOv11Detector:
         detection_settings = settings.get("detection", {})
         self.model_path = str(detection_settings.get("model", "yolo11n.pt"))
         self.confidence = float(detection_settings.get("confidence", 0.4))
+        self.class_confidences = _parse_class_confidences(
+            detection_settings.get("class_confidences", {})
+        )
         self.class_ids = [int(item) for item in detection_settings.get("classes", [0, 15, 16, 2, 3, 5, 7])]
         self.iou = float(detection_settings.get("iou", 0.5))
+        self.person_max_aspect_ratio = float(
+            detection_settings.get("person_max_aspect_ratio", 4.0)
+        )
         self.device = str(detection_settings.get("device", "cuda:0"))
         self.use_half = bool(detection_settings.get("half", True))
         self.imgsz = int(detection_settings.get("imgsz", 640))
@@ -57,7 +63,10 @@ class YOLOv11Detector:
         with self.inference_lock:
             results = self.model.predict(
                 frame_bgr,
-                conf=self.confidence,
+                conf=_predict_confidence_threshold(
+                    self.confidence,
+                    self.class_confidences,
+                ),
                 iou=self.iou,
                 classes=self.class_ids,
                 device=self.device,
@@ -76,12 +85,28 @@ class YOLOv11Detector:
         detections: list[Detection] = []
         for xyxy, conf, cls_id in zip(boxes.xyxy.cpu().tolist(), boxes.conf.cpu().tolist(), boxes.cls.cpu().tolist()):
             class_id = int(cls_id)
+            class_name = self.class_name(class_id)
+            bbox = tuple(float(value) for value in xyxy)
+            confidence = float(conf)
+            if not _passes_class_confidence(
+                confidence,
+                class_name,
+                self.confidence,
+                self.class_confidences,
+            ):
+                continue
+            if not _valid_detection_shape(
+                bbox,
+                class_name,
+                self.person_max_aspect_ratio,
+            ):
+                continue
             detections.append(
                 Detection(
-                    bbox_xyxy=tuple(float(value) for value in xyxy),
-                    confidence=float(conf),
+                    bbox_xyxy=bbox,
+                    confidence=confidence,
                     class_id=class_id,
-                    class_name=self.class_name(class_id),
+                    class_name=class_name,
                 )
             )
         return detections
@@ -116,10 +141,19 @@ class YOLOv11Detector:
                 self.names = self._extract_names()
 
         self.confidence = float(detection_settings.get("confidence", self.confidence))
+        self.class_confidences = _parse_class_confidences(
+            detection_settings.get("class_confidences", self.class_confidences)
+        )
         self.class_ids = [
             int(item) for item in detection_settings.get("classes", self.class_ids)
         ]
         self.iou = float(detection_settings.get("iou", self.iou))
+        self.person_max_aspect_ratio = float(
+            detection_settings.get(
+                "person_max_aspect_ratio",
+                self.person_max_aspect_ratio,
+            )
+        )
         self.imgsz = int(detection_settings.get("imgsz", self.imgsz))
 
     def class_name(self, class_id: int) -> str:
@@ -148,3 +182,50 @@ class YOLOv11Detector:
         if isinstance(raw_names, dict):
             return {int(key): str(value) for key, value in raw_names.items()}
         return {index: str(value) for index, value in enumerate(raw_names)}
+
+
+def _parse_class_confidences(value: Any) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    parsed: dict[str, float] = {}
+    for class_name, threshold in value.items():
+        try:
+            parsed[str(class_name)] = max(0.0, min(1.0, float(threshold)))
+        except (TypeError, ValueError):
+            continue
+    return parsed
+
+
+def _predict_confidence_threshold(
+    default_confidence: float,
+    class_confidences: dict[str, float],
+) -> float:
+    thresholds = [default_confidence, *class_confidences.values()]
+    return max(0.0, min(thresholds))
+
+
+def _passes_class_confidence(
+    confidence: float,
+    class_name: str,
+    default_confidence: float,
+    class_confidences: dict[str, float],
+) -> bool:
+    threshold = class_confidences.get(class_name, default_confidence)
+    return confidence >= threshold
+
+
+def _valid_detection_shape(
+    bbox_xyxy: tuple[float, float, float, float],
+    class_name: str,
+    person_max_aspect_ratio: float,
+) -> bool:
+    if class_name != "person" or person_max_aspect_ratio <= 0:
+        return True
+
+    x1, y1, x2, y2 = bbox_xyxy
+    width = max(0.0, x2 - x1)
+    height = max(0.0, y2 - y1)
+    if width <= 0 or height <= 0:
+        return False
+    aspect_ratio = max(width / height, height / width)
+    return aspect_ratio <= person_max_aspect_ratio

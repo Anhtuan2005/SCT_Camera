@@ -420,8 +420,7 @@ select:focus-visible,
   background: oklch(11% 0.01 248);
 }
 
-.stream-link::after,
-.editor-stage::after {
+.stream-link::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -433,12 +432,21 @@ select:focus-visible,
   opacity: 0.25;
 }
 
-.stream-img,
-.detail-stream {
+.stream-img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.detail-stream {
+  display: block;
+  width: auto;
+  height: auto;
+  max-height: min(78vh, 760px);
+  max-width: 100%;
+  object-fit: contain;
+  background: oklch(11% 0.01 248);
 }
 
 .camera-card-body {
@@ -545,9 +553,19 @@ select:focus-visible,
 
 .editor-stage {
   position: relative;
-  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
   overflow: hidden;
   background: oklch(11% 0.01 248);
+}
+
+.stream-editor-frame {
+  position: relative;
+  display: inline-grid;
+  max-width: 100%;
 }
 
 .editor-canvas {
@@ -1163,5 +1181,10 @@ label.toggle-label {
   .detection-control-bar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .detail-stream {
+    width: 100%;
+    height: auto;
   }
 }

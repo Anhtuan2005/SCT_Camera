@@ -12,9 +12,9 @@ Camera(s) -> YOLOv11 Detection -> ByteTrack Tracking -> Behavior Analysis -> Tel
 - Multi-camera pipeline, mỗi camera chạy trên một thread riêng.
 - FastAPI dashboard với MJPEG stream, ROI editor, line editor, settings và alert history.
 - Intrusion detection, loitering detection, line crossing counter.
-- Phát hiện người lạ trên toàn khung hình và cảnh báo ngay, không phụ thuộc ROI.
+- Phát hiện người lạ khi identity đã thấy face đủ tốt nhưng không khớp người quen; người trong ROI intrusion ưu tiên báo intrusion.
 - Nhận diện người quen bằng InsightFace face embedding, cache theo track ID.
-- Loitering toàn khung hình với timer 30 giây mặc định, không phụ thuộc ROI.
+- Loitering chỉ chạy trong ROI loitering/all với timer 30 giây mặc định hoặc threshold theo zone.
 - Telegram alert async qua `httpx`, có cooldown, dedup, retry và history.
 - Config YAML cho global settings và từng camera.
 
@@ -57,12 +57,13 @@ config/settings.yaml
 Các mục quan trọng:
 
 - `telegram.chat_id`: điền group chat ID, thường có dạng số âm như `-1001234567890`.
-- `detection.model`: `yolo11n.pt` nhanh hơn, `yolo11s.pt` chính xác hơn.
+- `detection.model`: `yolo11n.pt` nhanh hơn và đang dùng cho RTSP realtime; `yolo11s.pt` chính xác hơn nhưng chậm hơn.
 - `detection.device`: dùng `cuda:0` nếu CUDA hoạt động, hoặc `cpu`.
+- `detection.person_max_aspect_ratio`: bỏ bbox `person` quá mảnh/dài, giúp giảm rèm/cột bị nhận nhầm.
 - `pipeline.frame_skip`: tăng lên để giảm tải GPU.
 - `pipeline.camera_backend`: trên Windows nên để `msmf`; app tự bật workaround cho Logitech/UVC webcam.
 - `tracking.camera_motion_compensation`: bật/tắt CMC; mặc định dùng `sparseOptFlow`, `downscale: 2`.
-- `identity.similarity_threshold`: ngưỡng cosine của InsightFace; mặc định `0.45`.
+- `identity.similarity_threshold`: ngưỡng cosine của InsightFace; camera IMOU đang dùng `0.35` để nhận góc nghiêng/ngược sáng tốt hơn.
 
 Camera config nằm trong:
 
