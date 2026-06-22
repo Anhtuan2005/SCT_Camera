@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import Any
@@ -89,9 +90,10 @@ class ByteTrackTracker:
         self.detector = detector
         self.tracker_config = str(tracking_settings.get("tracker", "bytetrack.yaml"))
         self.history_length = int(tracking_settings.get("track_history_length", 50))
-        self.grace_frames = int(tracking_settings.get("track_grace_frames", 8))
-        self.duplicate_iou_threshold = float(tracking_settings.get("duplicate_iou_threshold", 0.85))
-        self.duplicate_containment_threshold = float(
+        self._settings_lock = threading.RLock()
+        self._grace_frames = int(tracking_settings.get("track_grace_frames", 8))
+        self._duplicate_iou_threshold = float(tracking_settings.get("duplicate_iou_threshold", 0.85))
+        self._duplicate_containment_threshold = float(
             tracking_settings.get("duplicate_containment_threshold", 0.7)
         )
         self.tracker_arg_overrides = _parse_tracker_arg_overrides(tracking_settings)
@@ -109,6 +111,36 @@ class ByteTrackTracker:
         self._track_id_aliases: dict[tuple[int, int], int] = {}
         self._track_alias_keys: dict[int, tuple[int, int]] = {}
         self._next_track_alias = 1
+
+    @property
+    def grace_frames(self) -> int:
+        with self._settings_lock:
+            return self._grace_frames
+
+    @grace_frames.setter
+    def grace_frames(self, value: int) -> None:
+        with self._settings_lock:
+            self._grace_frames = value
+
+    @property
+    def duplicate_iou_threshold(self) -> float:
+        with self._settings_lock:
+            return self._duplicate_iou_threshold
+
+    @duplicate_iou_threshold.setter
+    def duplicate_iou_threshold(self, value: float) -> None:
+        with self._settings_lock:
+            self._duplicate_iou_threshold = value
+
+    @property
+    def duplicate_containment_threshold(self) -> float:
+        with self._settings_lock:
+            return self._duplicate_containment_threshold
+
+    @duplicate_containment_threshold.setter
+    def duplicate_containment_threshold(self, value: float) -> None:
+        with self._settings_lock:
+            self._duplicate_containment_threshold = value
 
     def track(self, frame_bgr: np.ndarray) -> list[TrackedObject]:
         """Track configured classes in a BGR frame."""
@@ -168,21 +200,22 @@ class ByteTrackTracker:
     def update_settings(self, settings: dict[str, Any]) -> None:
         """Apply mutable tracker settings without rebuilding the pipeline."""
         tracking_settings = settings.get("tracking", {})
-        self.grace_frames = int(
-            tracking_settings.get("track_grace_frames", self.grace_frames)
-        )
-        self.duplicate_iou_threshold = float(
-            tracking_settings.get(
-                "duplicate_iou_threshold",
-                self.duplicate_iou_threshold,
+        with self._settings_lock:
+            self._grace_frames = int(
+                tracking_settings.get("track_grace_frames", self._grace_frames)
             )
-        )
-        self.duplicate_containment_threshold = float(
-            tracking_settings.get(
-                "duplicate_containment_threshold",
-                self.duplicate_containment_threshold,
+            self._duplicate_iou_threshold = float(
+                tracking_settings.get(
+                    "duplicate_iou_threshold",
+                    self._duplicate_iou_threshold,
+                )
             )
-        )
+            self._duplicate_containment_threshold = float(
+                tracking_settings.get(
+                    "duplicate_containment_threshold",
+                    self._duplicate_containment_threshold,
+                )
+            )
         self.tracker_arg_overrides = _parse_tracker_arg_overrides(tracking_settings)
         self.tracker_arg_overrides.setdefault("track_buffer", 90)
         self._apply_tracker_arg_overrides(self._tracker)

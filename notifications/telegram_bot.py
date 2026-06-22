@@ -24,6 +24,19 @@ class TelegramBot:
         self.enabled = bool(telegram.get("enabled", True))
         self.max_retries = int(telegram.get("max_retries", 3))
         self.timeout = httpx.Timeout(20.0, connect=10.0)
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Return a persistent async HTTP client, creating one if needed."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=self.timeout)
+        return self._client
+
+    async def close(self) -> None:
+        """Close the persistent HTTP client."""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def send_alert(self, alert: dict[str, Any]) -> bool:
         """Send an annotated alert image with a detailed caption."""
@@ -71,13 +84,16 @@ class TelegramBot:
         url = f"https://api.telegram.org/bot{self.bot_token}/{method}"
         for attempt in range(1, self.max_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.post(url, data=data, files=files)
-                    response.raise_for_status()
-                    payload = response.json()
-                    if payload.get("ok") is True:
-                        return True
-                    logger.warning("Telegram API returned non-ok payload: %s", payload)
+                client = self._get_client()
+                response = await client.post(url, data=data, files=files)
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("ok") is True:
+                    return True
+                logger.warning("Telegram API returned non-ok payload: %s", payload)
+            except httpx.RemoteProtocolError:
+                # Connection was reset by the server; recreate the client.
+                await self.close()
             except Exception as exc:
                 logger.warning(
                     "Telegram %s failed on attempt %s/%s: %s",

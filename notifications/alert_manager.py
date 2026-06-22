@@ -15,6 +15,9 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+_QUEUE_HIGH_WATER = 800
+_QUEUE_MAX_SIZE = 1000
+
 
 class AlertManager:
     """Manage alert cooldowns, delivery, and history."""
@@ -38,13 +41,13 @@ class AlertManager:
         if self._running:
             return
         self.loop = asyncio.get_running_loop()
-        self.queue = asyncio.Queue(maxsize=1000)
+        self.queue = asyncio.Queue(maxsize=_QUEUE_MAX_SIZE)
         self._running = True
         self._task = asyncio.create_task(self._worker(), name="alert-worker")
         logger.info("Alert manager started")
 
     async def stop(self) -> None:
-        """Stop the async alert worker."""
+        """Stop the async alert worker and close HTTP clients."""
         self._running = False
         if self._task:
             self._task.cancel()
@@ -52,6 +55,19 @@ class AlertManager:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        # Drain any remaining alerts so they are recorded in history.
+        if self.queue is not None:
+            while not self.queue.empty():
+                try:
+                    alert = self.queue.get_nowait()
+                    await self._handle_alert(alert)
+                except asyncio.QueueEmpty:
+                    break
+                except Exception as exc:
+                    logger.warning("Error draining alert queue: %s", exc)
+        # Close persistent HTTP clients.
+        await self.bot.close()
+        await self.discord.close()
         logger.info("Alert manager stopped")
 
     def enqueue_threadsafe(self, alert: dict[str, Any]) -> None:
@@ -65,8 +81,19 @@ class AlertManager:
                 return
             try:
                 self.queue.put_nowait(alert)
+                if self.queue.qsize() >= _QUEUE_HIGH_WATER:
+                    logger.warning(
+                        "Alert queue high water mark reached: %d/%d",
+                        self.queue.qsize(),
+                        _QUEUE_MAX_SIZE,
+                    )
             except asyncio.QueueFull:
-                logger.error("Alert queue full; dropping alert %s", alert.get("type"))
+                logger.error(
+                    "Alert queue full (%d); dropping %s alert for camera %s",
+                    _QUEUE_MAX_SIZE,
+                    alert.get("type"),
+                    alert.get("camera_id"),
+                )
 
         self.loop.call_soon_threadsafe(put_alert)
 
@@ -105,7 +132,10 @@ class AlertManager:
     async def _worker(self) -> None:
         assert self.queue is not None
         while self._running:
-            alert = await self.queue.get()
+            try:
+                alert = await self.queue.get()
+            except asyncio.CancelledError:
+                return
             try:
                 await self._handle_alert(alert)
             except Exception as exc:
@@ -210,3 +240,4 @@ class AlertManager:
         }
         record["received_at"] = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
         return record
+

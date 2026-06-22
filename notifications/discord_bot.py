@@ -24,6 +24,19 @@ class DiscordBot:
         self.username = str(discord.get("username", "SCT Camera")).strip() or "SCT Camera"
         self.max_retries = int(discord.get("max_retries", 3))
         self.timeout = httpx.Timeout(20.0, connect=10.0)
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Return a persistent async HTTP client, creating one if needed."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=self.timeout)
+        return self._client
+
+    async def close(self) -> None:
+        """Close the persistent HTTP client."""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def send_alert(self, alert: dict[str, Any]) -> bool:
         """Send an alert to Discord with a snapshot when available."""
@@ -59,10 +72,13 @@ class DiscordBot:
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.post(self.webhook_url, data=data, files=files)
-                    response.raise_for_status()
-                    return True
+                client = self._get_client()
+                response = await client.post(self.webhook_url, data=data, files=files)
+                response.raise_for_status()
+                return True
+            except httpx.RemoteProtocolError:
+                # Connection was reset by the server; recreate the client.
+                await self.close()
             except Exception as exc:
                 logger.warning(
                     "Discord webhook failed on attempt %s/%s: %s",
@@ -97,3 +113,4 @@ class DiscordBot:
             f"Zone/Line: {place}\n"
             f"Details: {details}"
         )
+

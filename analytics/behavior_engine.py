@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,7 +22,7 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-_AUTO_GLOBAL_ZONE_BEHAVIORS = ("intrusion", "loitering", "stranger_watch")
+_AUTO_GLOBAL_ZONE_BEHAVIORS = ("intrusion", "stranger_watch")
 _VIDEO_FILE_EXTENSIONS = {
     ".avi",
     ".m4v",
@@ -52,7 +51,7 @@ class BehaviorEngine:
         )
         self.loitering = LoiteringDetector(
             default_threshold_seconds=float(
-                behavior.get("loitering_threshold_seconds", 30)
+                behavior.get("loitering_threshold_seconds", 20)
             )
         )
         self.suspicious_stranger = SuspiciousStrangerDetector(
@@ -70,9 +69,6 @@ class BehaviorEngine:
         self.line_counter = LineCounter()
         self.identity_resolver = identity_resolver or PersonIdentityResolver(settings)
         self.learning = BehaviorLearningService(settings)
-        self._person_entry_times: dict[tuple[str, int], float] = {}
-        self._person_timer_states: dict[tuple[str, int], dict[str, Any]] = {}
-        self._timer_visible_track_ids: dict[str, set[int]] = {}
 
     def label_objects(
         self,
@@ -111,7 +107,6 @@ class BehaviorEngine:
         timestamp = datetime.now().astimezone()
         zones = self._load_zones(camera_config)
         lines = self._load_lines(camera_config)
-        self._update_person_presence_timers(camera_id, tracked_objects)
 
         alerts: list[dict[str, Any]] = []
         alerts.extend(
@@ -167,17 +162,8 @@ class BehaviorEngine:
         return self.line_counter.get_counters(camera_id)
 
     def get_person_timer_states(self, camera_id: str) -> dict[int, dict[str, Any]]:
-        """Return bbox timers for non-known people, upgraded with loitering state."""
-        visible_track_ids = self._timer_visible_track_ids.get(camera_id, set())
-        states = {
-            track_id: dict(state)
-            for (state_camera_id, track_id), state in self._person_timer_states.items()
-            if state_camera_id == camera_id and track_id in visible_track_ids
-        }
-        for track_id, state in self.loitering.get_active_states(camera_id).items():
-            if track_id in visible_track_ids:
-                states[track_id] = state
-        return states
+        """Return live ROI loitering timers keyed by track id."""
+        return self.loitering.get_active_states(camera_id)
 
     def get_stranger_watch_states(self, camera_id: str) -> dict[int, dict[str, Any]]:
         """Return current stranger-watch timer states."""
@@ -211,44 +197,6 @@ class BehaviorEngine:
         if text.lower().startswith(("rtsp://", "http://", "https://")):
             return False
         return Path(text).suffix.lower() in _VIDEO_FILE_EXTENSIONS
-
-    def _update_person_presence_timers(
-        self,
-        camera_id: str,
-        objects: list[TrackedObject],
-    ) -> None:
-        now = time.monotonic()
-        visible_track_ids: set[int] = set()
-        for obj in objects:
-            if not self._should_show_bbox_timer(obj):
-                continue
-            visible_track_ids.add(obj.track_id)
-            key = (camera_id, obj.track_id)
-            first_seen = self._person_entry_times.setdefault(key, now)
-            self._person_timer_states[key] = {
-                "camera_id": camera_id,
-                "track_id": obj.track_id,
-                "duration": now - first_seen,
-                "threshold_seconds": 0.0,
-                "remaining_seconds": 0.0,
-                "alert_ready": False,
-                "timer_kind": "presence",
-            }
-        self._timer_visible_track_ids[camera_id] = visible_track_ids
-
-        active_keys = {(camera_id, track_id) for track_id in visible_track_ids}
-        stale_keys = [
-            key
-            for key in self._person_entry_times
-            if key[0] == camera_id and key not in active_keys
-        ]
-        for key in stale_keys:
-            self._person_entry_times.pop(key, None)
-            self._person_timer_states.pop(key, None)
-
-    @staticmethod
-    def _should_show_bbox_timer(obj: TrackedObject) -> bool:
-        return obj.class_name == "person" and obj.identity_kind != "known_person"
 
     @staticmethod
     def _missing_auto_global_zones(zones: list[Zone]) -> list[Zone]:

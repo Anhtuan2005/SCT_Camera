@@ -175,11 +175,12 @@ class PersonAlertTests(unittest.TestCase):
 
         generated = {zone.zone_type: zone for zone in zones if zone.auto_generated}
         self.assertEqual(
-            {"intrusion", "loitering", "stranger_watch"},
+            {"intrusion", "stranger_watch"},
             set(generated),
         )
         self.assertTrue(all(zone.name == "Full Frame" for zone in generated.values()))
         self.assertNotIn("asset_watch", generated)
+        self.assertNotIn("loitering", generated)
 
     def test_auto_global_zone_can_be_disabled_per_camera(self) -> None:
         zones = BehaviorEngine._load_zones(
@@ -191,10 +192,10 @@ class PersonAlertTests(unittest.TestCase):
 
         self.assertEqual([], zones)
 
-    def test_behavior_engine_loitering_runs_on_default_full_frame_zone(self) -> None:
+    def test_behavior_engine_loitering_requires_configured_roi(self) -> None:
         engine = BehaviorEngine(
             {
-                "behavior": {"loitering_threshold_seconds": 30},
+                "behavior": {"loitering_threshold_seconds": 20},
                 "behavior_learning": {"enabled": False},
                 "identity": {"enabled": False},
             }
@@ -207,24 +208,36 @@ class PersonAlertTests(unittest.TestCase):
             now[0] = 131.0
             alerts = engine.analyze([person(7)], config, (100, 100, 3))
 
-        self.assertIn("loitering", [alert["type"] for alert in alerts])
+        self.assertNotIn("loitering", [alert["type"] for alert in alerts])
+        self.assertEqual({}, engine.get_person_timer_states("cam"))
 
-    def test_bbox_timer_runs_for_non_known_people_only(self) -> None:
+    def test_bbox_timer_runs_only_for_loitering_roi(self) -> None:
         engine = BehaviorEngine(
             {
-                "behavior": {"loitering_threshold_seconds": 30},
+                "behavior": {"loitering_threshold_seconds": 20},
                 "behavior_learning": {"enabled": False},
                 "identity": {"enabled": False},
             }
         )
-        config = {"camera_id": "cam", "name": "Camera", "zones": [], "lines": []}
+        config = {
+            "camera_id": "cam",
+            "name": "Camera",
+            "zones": [
+                {
+                    "id": "porch",
+                    "name": "Porch",
+                    "type": "loitering",
+                    "polygon": [[0, 0], [1, 0], [1, 1], [0, 1]],
+                }
+            ],
+            "lines": [],
+        }
         now = [100.0]
 
-        with patch("analytics.behavior_engine.time.monotonic", side_effect=lambda: now[0]):
+        with patch("analytics.loitering.time.monotonic", side_effect=lambda: now[0]):
             engine.analyze(
                 [
                     person(1, identity_kind="stranger"),
-                    person(2, identity_kind="known_person"),
                 ],
                 config,
                 (100, 100, 3),
@@ -233,7 +246,6 @@ class PersonAlertTests(unittest.TestCase):
             engine.analyze(
                 [
                     person(1, identity_kind="stranger"),
-                    person(2, identity_kind="known_person"),
                 ],
                 config,
                 (100, 100, 3),
@@ -243,7 +255,8 @@ class PersonAlertTests(unittest.TestCase):
 
         self.assertIn(1, states)
         self.assertGreaterEqual(states[1]["duration"], 12.0)
-        self.assertNotIn(2, states)
+        self.assertEqual(20.0, states[1]["threshold_seconds"])
+        self.assertEqual("porch", states[1]["zone_id"])
 
     @patch("analytics.loitering.time.monotonic", side_effect=[100.0, 131.0])
     def test_loitering_requires_roi_zone(self, _monotonic) -> None:

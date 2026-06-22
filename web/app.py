@@ -8,6 +8,8 @@ import json
 import re
 import threading
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -167,7 +169,16 @@ def load_camera_configs(cameras_dir: Path) -> dict[str, dict[str, Any]]:
 
 def create_app(runtime: "RuntimeState") -> FastAPI:
     """Create the FastAPI dashboard application."""
-    app = FastAPI(title="SCT Camera", version="1.0.0")
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        await runtime.start()
+        try:
+            yield
+        finally:
+            await runtime.stop()
+
+    app = FastAPI(title="SCT Camera", version="1.0.0", lifespan=lifespan)
     app.state.runtime = runtime
 
     static_dir = Path(__file__).resolve().parent / "static"
@@ -176,13 +187,17 @@ def create_app(runtime: "RuntimeState") -> FastAPI:
     app.include_router(stream.router)
     app.include_router(config_api.router)
 
-    @app.on_event("startup")
-    async def startup() -> None:
-        await runtime.start()
-
-    @app.on_event("shutdown")
-    async def shutdown() -> None:
-        await runtime.stop()
+    @app.get("/api/health")
+    async def health_check() -> dict[str, Any]:
+        """Return system health status for monitoring."""
+        cameras = runtime.list_cameras()
+        online = sum(1 for cam in cameras if cam.get("status") == "online")
+        return {
+            "status": "ok",
+            "cameras_total": len(cameras),
+            "cameras_online": online,
+            "alert_manager_running": runtime.alert_manager._running,
+        }
 
     return app
 
@@ -534,7 +549,15 @@ class RuntimeState:
         with self._lock:
             updated_settings = self._deep_merge(copy.deepcopy(self.settings), payload)
             updated_settings = _enforce_required_runtime_settings(updated_settings)
-            self.detector.update_settings(updated_settings)
+
+            # Try detector update first; rollback if it fails.
+            previous_settings = self.settings
+            try:
+                self.detector.update_settings(updated_settings)
+            except Exception as exc:
+                logger.error("Detector settings update failed, rolling back: %s", exc)
+                return copy.deepcopy(previous_settings)
+
             self.settings = updated_settings
             self.settings_path.write_text(
                 yaml.safe_dump(self.settings, sort_keys=False, allow_unicode=True),
@@ -553,52 +576,12 @@ class RuntimeState:
             for buffer in self.frame_buffers.values():
                 buffer.max_height = stream_max_height
             for pipeline in self.pipelines.values():
-                pipeline.settings = self.settings
+                # Thread-safe settings update via dedicated methods.
+                with pipeline._config_lock:
+                    pipeline._settings = copy.deepcopy(self.settings)
+                pipeline.update_pipeline_settings(pipeline_settings)
                 pipeline.pose_estimator = self.pose_estimator
                 pipeline.behavior_engine = self._new_behavior_engine()
-                pipeline.frame_skip = max(1, int(pipeline_settings.get("frame_skip", 2)))
-                pipeline.ai_max_fps = max(0.0, float(pipeline_settings.get("ai_max_fps", 10)))
-                pipeline.analysis_stale_after_ms = max(
-                    0.0,
-                    float(pipeline_settings.get("analysis_stale_after_ms", 500)),
-                )
-                pipeline.analysis_timeout = max(
-                    1.0,
-                    float(pipeline_settings.get("analysis_timeout_min_seconds", 5.0)),
-                )
-                pipeline.reconnect_delay = float(pipeline_settings.get("reconnect_delay", 5))
-                pipeline.max_reconnect_attempts = int(pipeline_settings.get("max_reconnect_attempts", 10))
-                pipeline.processing_max_height = int(
-                    pipeline_settings.get(
-                        "processing_max_height",
-                        pipeline_settings.get("stream_max_height", 720),
-                    )
-                )
-                pipeline.realtime_video_playback = bool(pipeline_settings.get("realtime_video_playback", True))
-                pipeline.loop_video_files = bool(pipeline_settings.get("loop_video_files", True))
-                pipeline.drop_late_video_frames = bool(pipeline_settings.get("drop_late_video_frames", True))
-                pipeline.tracker.confidence = self.detector.confidence
-                pipeline.tracker.class_ids = list(self.detector.class_ids)
-                pipeline.tracker.iou = self.detector.iou
-                pipeline.tracker.imgsz = self.detector.imgsz
-                pipeline.tracker.grace_frames = int(
-                    self.settings.get("tracking", {}).get(
-                        "track_grace_frames",
-                        pipeline.tracker.grace_frames,
-                    )
-                )
-                pipeline.tracker.duplicate_iou_threshold = float(
-                    self.settings.get("tracking", {}).get(
-                        "duplicate_iou_threshold",
-                        pipeline.tracker.duplicate_iou_threshold,
-                    )
-                )
-                pipeline.tracker.duplicate_containment_threshold = float(
-                    self.settings.get("tracking", {}).get(
-                        "duplicate_containment_threshold",
-                        pipeline.tracker.duplicate_containment_threshold,
-                    )
-                )
                 pipeline.tracker.update_settings(self.settings)
         return copy.deepcopy(self.settings)
 
@@ -731,7 +714,7 @@ class RuntimeState:
     def _default_zone_threshold(self, zone_type: str) -> float | None:
         behavior = self.settings.get("behavior", {})
         if zone_type == "loitering":
-            return float(behavior.get("loitering_threshold_seconds", 30))
+            return float(behavior.get("loitering_threshold_seconds", 20))
         if zone_type == "stranger_watch":
             return float(behavior.get("stranger_watch_seconds", 180))
         return None

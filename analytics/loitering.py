@@ -13,7 +13,7 @@ from core.tracker import TrackedObject
 class LoiteringDetector:
     """Alert when a person remains in a loitering ROI beyond a threshold."""
 
-    def __init__(self, default_threshold_seconds: float = 30.0) -> None:
+    def __init__(self, default_threshold_seconds: float = 20.0) -> None:
         self.default_threshold_seconds = default_threshold_seconds
         self._entry_times: dict[tuple[str, str, int], float] = {}
         self._alerted: set[tuple[str, str, int]] = set()
