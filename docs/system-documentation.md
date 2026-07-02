@@ -1,25 +1,26 @@
 # SCT Camera System Documentation
 
-Tài liệu này mô tả cách project vận hành ở mức hệ thống: startup, realtime pipeline, analytics, dashboard, API, cấu hình, alerting và các điểm cần biết khi sửa code.
+Tài liệu này mô tả trạng thái hệ thống hiện tại của SCT Camera: startup, realtime pipeline, identity, behavior analytics, notification, dashboard/API, dữ liệu runtime, SQLite migration foundation, benchmark/backup scripts, test suite và các điểm cần nhớ khi sửa code.
 
-## 1. Mô Hình Tổng Quát
+## 1. Mục tiêu hệ thống
 
-SCT Camera là một hệ thống giám sát video realtime. App nhận source từ webcam, file video hoặc RTSP, chạy detection/tracking, áp rule hành vi, vẽ annotation, stream MJPEG lên dashboard và gửi alert qua Telegram/Discord/siren.
+SCT Camera là hệ thống giám sát video realtime. App nhận source từ webcam, file video hoặc RTSP, chạy YOLOv11 detection, ByteTrack tracking, pose optional, identity labeling, behavior rules, vẽ annotation, stream MJPEG lên dashboard và gửi alert qua Telegram/Discord/siren.
 
 Luồng chính:
 
 ```text
 Camera/Webcam/Video/RTSP
   -> OpenCV capture
-  -> CameraPipeline thread
-  -> YOLOv11 + ByteTrack + camera motion compensation
-  -> optional pose estimation
-  -> identity labeling
+  -> CameraPipeline capture thread
+  -> bounded async analysis slot per camera
+  -> YOLOv11 + ByteTrack
+  -> optional YOLO pose
+  -> InsightFace identity labeling
   -> behavior analytics
   -> annotated frame
-  -> FrameBuffer for MJPEG dashboard
-  -> AlertManager queue
-  -> Telegram / Discord / local siren / alert history
+  -> FrameBuffer MJPEG dashboard
+  -> AlertManager async queue
+  -> Telegram / Discord / local siren / in-memory alert history
 ```
 
 Sơ đồ module:
@@ -30,7 +31,7 @@ flowchart LR
     App --> Runtime["RuntimeState"]
     Runtime --> Detector["YOLOv11Detector"]
     Runtime --> Pose["PoseEstimator"]
-    Runtime --> Engine["BehaviorEngine"]
+    Runtime --> Identity["PersonIdentityResolver"]
     Runtime --> Alerts["AlertManager"]
     Runtime --> Buffers["FrameBuffer per camera"]
     Runtime --> Pipelines["CameraPipeline per enabled camera"]
@@ -39,7 +40,9 @@ flowchart LR
     Pipelines --> Tracker["ByteTrackTracker"]
     Tracker --> Detector
     Pipelines --> Pose
-    Pipelines --> Engine
+    Pipelines --> Engine["BehaviorEngine"]
+    Engine --> Identity
+    Engine --> Learning["BehaviorLearningService"]
     Pipelines --> Draw["draw_annotations"]
     Pipelines --> Buffers
     Pipelines --> Alerts
@@ -51,128 +54,149 @@ flowchart LR
     Alerts --> Siren["SirenController"]
 ```
 
-## 2. Cấu Trúc Thư Mục
+## 2. Cấu trúc thư mục
 
 | Path | Vai trò |
 | --- | --- |
-| `main.py` | Entry point. Set workaround OpenCV, load config, tạo FastAPI app, chạy Uvicorn. |
-| `config/settings.yaml` | Global settings: detection, tracking, behavior, notification, pipeline, web, logging. Có chứa secret runtime, không nên public. |
-| `config/cameras/*.yaml` | Registry camera. Mỗi file là một camera source, trạng thái enabled, zones, lines, alert channels. |
-| `core/` | Vision pipeline primitives: detector, tracker, pose, frame buffer, camera pipeline. |
-| `analytics/` | Các rule hành vi và behavior learning. `BehaviorEngine` là orchestrator. |
-| `notifications/` | Telegram, Discord, siren và `AlertManager` queue/cooldown/history. |
+| `main.py` | Entry point. Set workaround OpenCV, load YAML config, tạo FastAPI app, chạy Uvicorn. |
+| `config/settings.yaml` | Global runtime settings. Có thể chứa token/webhook thật, không public. |
+| `config/cameras/*.yaml` | Registry camera: source, enabled, zones, lines, notification channels. |
+| `config/known_people/` | Ảnh tham chiếu người quen cho identity enrollment. |
+| `core/` | Detector, tracker, pose, frame buffer, realtime camera pipeline, SQLite migration manager. |
+| `analytics/` | Identity resolver, behavior rules, behavior learning, zone/line model. |
+| `notifications/` | Alert manager, Telegram, Discord, siren. |
 | `web/` | FastAPI app, routes, Jinja templates, static JS/CSS dashboard. |
-| `scripts/train_behavior_classifier.py` | Train logistic risk model từ event log đã label. |
-| `docs/behavior-learning.md` | Workflow riêng cho behavior learning. |
-| `logs/` | File log runtime, mặc định `logs/sct_camera.log`. |
-| `data/` | Runtime data nếu bật behavior learning, ví dụ `behavior_events.jsonl` và labels CSV. |
-| `models/` | Model behavior classifier sinh ra sau khi train. |
+| `migrations/` | SQLite schema migrations versioned theo số thứ tự. |
+| `scripts/` | Benchmark, backup, dataset manifest, behavior classifier training. |
+| `tests/` | Unit/integration tests cho detector, tracker, identity, behavior, pipeline, runtime settings, DB migration. |
+| `docs/` | Documentation, dataset manifest, behavior-learning guide. |
+| `data/` | Runtime data local: behavior events/labels, backups, benchmark outputs, future SQLite DB/clips. |
+| `models/` | InsightFace cache và behavior classifier output. |
+| `logs/` | Runtime log, mặc định `logs/sct_camera.log`. |
 
-## 3. Startup Lifecycle
+## 3. Startup lifecycle
 
-Khi chạy:
+Chạy app:
 
 ```powershell
 python main.py
 ```
 
-App đi qua các bước:
+Startup:
 
-1. `main.py` set environment workaround cho OpenCV trên Windows:
-   - tắt OBSENSOR priority để tránh lỗi chiếm camera index;
-   - tắt MSMF hardware transforms để giảm lỗi/hang webcam UVC;
-   - ép RTSP qua TCP cho FFMPEG.
-2. Load `config/settings.yaml` bằng `load_settings`.
-3. Setup logging bằng `utils.logger.setup_logging`.
-4. Load toàn bộ `config/cameras/*.yaml` bằng `load_camera_configs`.
-5. Tạo `RuntimeState`, trong đó khởi tạo các service dùng chung:
+1. `main.py` set workaround OpenCV trên Windows:
+   - tắt OBSENSOR priority để tránh chiếm camera index;
+   - tắt MSMF hardware transforms để giảm lỗi webcam UVC;
+   - ép RTSP FFMPEG dùng TCP.
+2. Load `config/settings.yaml`.
+3. Setup logging.
+4. Load `config/cameras/*.yaml`.
+5. Tạo `RuntimeState`.
+6. `RuntimeState` khởi tạo service dùng chung:
    - `YOLOv11Detector`;
    - `PoseEstimator`;
    - `BehaviorEngine`;
+   - shared `PersonIdentityResolver`;
    - `AlertManager`;
    - `FrameBuffer` cho từng camera.
-6. `create_app` tạo FastAPI app, mount static files và include routes.
-7. FastAPI startup gọi `RuntimeState.start()`:
-   - start async alert worker;
-   - start `CameraPipeline` cho từng camera đang `enabled: true`.
-8. Uvicorn phục vụ dashboard theo `web.host` và `web.port`.
+7. FastAPI lifespan gọi `RuntimeState.start()`.
+8. `AlertManager` async worker start.
+9. Mỗi camera `enabled: true` được start một `CameraPipeline`.
 
 Shutdown:
 
-1. FastAPI shutdown gọi `RuntimeState.stop()`.
-2. Runtime stop tất cả camera pipeline threads.
-3. Runtime stop alert worker.
-4. Pipeline release camera/video capture và set frame buffer về offline.
+1. FastAPI lifespan gọi `RuntimeState.stop()`.
+2. Từng pipeline stop, release capture, set buffer offline.
+3. Alert worker stop.
 
-## 4. RuntimeState Là Trung Tâm Điều Phối
+## 4. RuntimeState ownership
 
-`web/app.py::RuntimeState` giữ state runtime và là layer duy nhất mà routes nên gọi.
+`web/app.py::RuntimeState` là boundary giữa API/UI và runtime. Route không nên tự sửa file YAML hoặc chạm trực tiếp pipeline internals.
 
 RuntimeState quản lý:
 
 | Thuộc tính | Ý nghĩa |
 | --- | --- |
-| `settings` | Global settings trong memory, deep-copy từ YAML. |
+| `settings` | Global settings trong memory. |
 | `cameras` | Camera configs trong memory. |
-| `settings_path`, `cameras_dir` | Nơi persist YAML khi user chỉnh từ UI/API. |
-| `frame_buffers` | Buffer frame/status cho từng camera. |
+| `settings_path`, `cameras_dir` | Nơi persist YAML. |
+| `frame_buffers` | Latest frame/status/FPS/latency cho từng camera. |
 | `detector` | YOLO model dùng chung. |
-| `pose_estimator` | Pose model optional, dùng chung. |
-| `behavior_engine` | Orchestrator các behavior rules. |
-| `alert_manager` | Queue gửi alert, cooldown, history. |
+| `pose_estimator` | Pose model dùng chung, share inference lock/device với detector. |
+| `behavior_engine` | Engine mẫu, giữ shared identity resolver. |
+| `identity_resolver` | Shared InsightFace resolver để cache/reference không bị load lại theo từng camera. |
+| `alert_manager` | Queue/cooldown/history notification. |
 | `pipelines` | CameraPipeline đang chạy, index theo `camera_id`. |
 
-Nguyên tắc ownership:
+Runtime settings update:
 
-- Routes không tự sửa file YAML; routes gọi method của `RuntimeState`.
-- RuntimeState chịu trách nhiệm persist settings/camera config.
-- Pipeline đọc camera config qua copy và có thể nhận update bằng `update_config`.
-- Detector/pose dùng chung để tiết kiệm GPU/RAM; inference được guard bằng lock.
+- `PUT /api/settings` deep-merge payload vào settings hiện tại.
+- Detector update trước; nếu lỗi thì rollback settings.
+- Settings được ghi lại bằng UTF-8 YAML.
+- Alert manager, behavior engine, pose estimator, tracker và pipeline knobs được update runtime.
+- Một số thay đổi lớn vẫn nên restart app để sạch state: đổi model chính, đổi CPU/GPU, sửa behavior code.
 
-## 5. Camera Pipeline Realtime
+## 5. CameraPipeline realtime model
 
-Mỗi camera enabled chạy trong một thread riêng: `core/pipeline.py::CameraPipeline`.
+Mỗi camera enabled chạy trong một capture thread: `core/pipeline.py::CameraPipeline`.
 
-Pipeline loop:
+Pipeline hiện tại tách capture/display khỏi AI analysis:
 
-1. Lấy config hiện tại của camera.
-2. Parse `source`:
-   - integer hoặc string số: webcam index;
-   - path: video file;
-   - `rtsp://...`: RTSP stream.
-3. Open capture:
-   - RTSP dùng `cv2.CAP_FFMPEG`;
-   - webcam thử backend theo `pipeline.camera_backend`, rồi fallback `MSMF`, `DSHOW`, `ANY`;
-   - video file dùng OpenCV default.
-4. Read frame liên tục.
-5. Resize frame nếu cao hơn `pipeline.processing_max_height`.
-6. Chỉ xử lý detection/tracking mỗi `pipeline.frame_skip` frame.
-7. Nếu tới frame cần xử lý:
-   - `ByteTrackTracker.track(frame)`;
-   - `PoseEstimator.attach(frame, objects)` nếu pose enabled;
-   - `BehaviorEngine.label_objects(...)` để gắn identity;
-   - `BehaviorEngine.analyze(...)` để tạo alert candidates.
-8. Lấy line counters và stranger watch states để vẽ overlay.
-9. `draw_annotations(...)` tạo frame đã annotate.
-10. Với mỗi alert:
-    - thêm `notification_channels` từ camera config;
-    - attach bản copy frame vào alert;
-    - enqueue qua `AlertManager.enqueue_threadsafe`.
-11. Update `FrameBuffer` với JPEG mới, status, object count, alert count, FPS.
+```text
+capture loop
+  -> read frame
+  -> rotate/resize
+  -> first frame analysis sync
+  -> later frames submit to one analysis worker when due
+  -> reuse latest annotated result while AI đang chạy
+  -> update FrameBuffer liên tục
+```
 
-Video file behavior:
+Analysis path:
 
-- `pipeline.realtime_video_playback: true` cố phát theo FPS của file.
-- `pipeline.loop_video_files: true` tua lại đầu file khi hết video.
-- `pipeline.drop_late_video_frames: true` bỏ bớt frame nếu xử lý chậm hơn realtime.
+```text
+analysis worker
+  -> tracker.track(frame)
+  -> pose_estimator.attach(...)
+  -> behavior_engine.label_objects(...)
+  -> behavior_engine.analyze(...)
+  -> draw_annotations(...)
+  -> enqueue alert with annotated frame copy
+  -> publish latest analysis snapshot
+```
 
-Reconnect behavior:
+Backpressure/health behavior:
 
-- Nếu không mở được source, pipeline set status offline và retry theo `reconnect_delay`.
-- Nếu vượt `max_reconnect_attempts`, pipeline exit.
-- Nếu stream đang chạy bị disconnect, pipeline release capture rồi reconnect.
+- Mỗi camera chỉ có một analysis slot in-flight.
+- `pipeline.ai_max_fps` giới hạn tần suất AI.
+- `pipeline.frame_skip` bỏ bớt frame trước khi xét analysis.
+- Nếu analysis còn chạy và chưa timeout, frame mới chỉ hiển thị với snapshot cũ.
+- Nếu snapshot quá cũ so với `analysis_stale_after_ms`, log cảnh báo stale analysis.
+- Nếu analysis thread treo quá `analysis_timeout_min_seconds`, pipeline không tạo thêm AI worker trùng lặp.
+- FPS spike/low-FPS và track stability drop đều được log để debug.
 
-## 6. Detection, Tracking, Pose
+Capture behavior:
+
+- RTSP dùng `cv2.CAP_FFMPEG`.
+- Webcam thử backend config trước, rồi fallback `MSMF`, `DSHOW`, `ANY`.
+- Video file có thể chạy realtime, loop lại, và drop frame nếu trễ.
+- Disconnect/open fail sẽ set status offline và reconnect/backoff.
+
+Key settings:
+
+| Setting | Tác dụng |
+| --- | --- |
+| `pipeline.frame_skip` | Cứ N frame mới xét analysis. |
+| `pipeline.ai_max_fps` | Giới hạn FPS cho AI analysis mỗi camera. |
+| `pipeline.processing_max_height` | Resize frame trước AI. |
+| `pipeline.stream_max_height` | Resize JPEG stream cho dashboard. |
+| `pipeline.realtime_video_playback` | Phát video file theo FPS metadata. |
+| `pipeline.loop_video_files` | Loop video file khi hết. |
+| `pipeline.drop_late_video_frames` | Bỏ frame nếu xử lý chậm hơn realtime. |
+| `pipeline.analysis_stale_after_ms` | Ngưỡng cảnh báo snapshot cũ. |
+| `pipeline.analysis_timeout_min_seconds` | Ngưỡng coi analysis có vấn đề. |
+
+## 6. Detection, tracking, pose
 
 ### Detection
 
@@ -183,100 +207,109 @@ Các setting chính:
 | Key | Tác dụng |
 | --- | --- |
 | `detection.model` | Model path/name, ví dụ `yolo11n.pt`. |
-| `detection.confidence` | Confidence threshold. |
+| `detection.confidence` | Confidence mặc định. |
+| `detection.class_confidences` | Confidence riêng theo class name. |
 | `detection.iou` | IoU threshold. |
 | `detection.classes` | COCO class IDs được detect/track. |
 | `detection.device` | `cuda:0` hoặc `cpu`. |
-| `detection.half` | Dùng FP16 khi chạy CUDA. |
+| `detection.half` | FP16 khi chạy CUDA. |
 | `detection.imgsz` | Inference image size. |
+| `detection.person_max_aspect_ratio` | Filter bbox person quá méo. |
 
-Nếu `cuda:0` được config nhưng PyTorch không thấy CUDA, detector fallback CPU và tắt half precision.
+Nếu config CUDA nhưng PyTorch không thấy CUDA, detector fallback CPU và tắt half precision.
 
 ### Tracking
 
-`core/tracker.py::ByteTrackTracker` chạy một Ultralytics `BYTETracker` riêng cho mỗi camera với
-`tracker="bytetrack.yaml"` mặc định. Nếu bật CMC, tracker ước lượng chuyển động toàn cục giữa
-hai frame và bù trạng thái Kalman trước bước association.
+`core/tracker.py::ByteTrackTracker` dùng Ultralytics BYTETracker. Mỗi pipeline có tracker riêng, nhưng detector dùng chung.
 
 Tracker giữ:
 
 - `track_id`;
 - bbox hiện tại;
-- class name/confidence;
-- `center_history` để phục vụ line crossing, suspicious movement, theft scoring;
+- class id/name/confidence;
+- `center_history`;
 - object cũ trong vài frame qua `tracking.track_grace_frames`;
-- dedupe object cùng class theo `tracking.duplicate_iou_threshold`.
-- camera motion compensation qua `tracking.camera_motion_compensation`.
+- duplicate suppression qua IoU/containment threshold;
+- optional camera motion compensation.
 
-CMC mặc định dùng sparse optical flow với affine transform. Nếu frame thiếu feature hoặc phép ước
-lượng thất bại, tracker dùng identity transform và tiếp tục xử lý thay vì làm hỏng pipeline. CMC phù
-hợp với rung hoặc pan nhẹ; nó không thay thế calibration cho camera PTZ quay góc lớn.
+CMC (`tracking.camera_motion_compensation`) dùng sparse optical flow để bù rung/pan nhẹ. Nếu estimate fail, tracker fallback identity transform, không làm hỏng pipeline.
 
 ### Pose
 
 `core/pose.py::PoseEstimator` chỉ chạy khi:
 
 - `pose.enabled: true`;
-- có object class `person`;
-- pose model tồn tại hoặc `pose.allow_download: true`.
+- frame có object `person`;
+- model pose tồn tại hoặc `pose.allow_download: true`.
 
-Pose keypoints được match lại vào tracked person bằng IoU bbox. Theft rule dùng wrist keypoints để nhận tín hiệu `pose_push_contact`.
+Pose keypoints match vào tracked person bằng IoU. Theft rule dùng wrist keypoints cho tín hiệu contact/push.
 
-## 7. Identity Labeling
+## 7. Identity labeling
 
-`analytics/person_identity.py::PersonIdentityResolver` gắn label trước khi chạy behavior rules.
+`analytics/person_identity.py::PersonIdentityResolver` gán identity trước behavior rules.
 
-Behavior hiện tại:
+Chính sách hiện tại:
 
-- `person`: nếu match reference image thì `identity_kind="known_person"`, ngược lại là stranger.
-- `cat`/`dog`: gắn kind dạng animal label để dashboard/annotation dễ hiển thị.
-- Các object khác giữ nguyên.
+- Source video file tự assume person là stranger để demo/test không cần live face recognition.
+- Camera live mặc định dùng face matching.
+- Camera có thể set `unknown_person_policy` thành `assume_stranger`, `unknown_by_default`, hoặc `all_unknown`.
+- Known person được match bằng InsightFace embedding cosine similarity.
+- Unknown person cần đủ số lần confirm theo `unknown_confirmation_attempts` trước khi thành stranger chắc chắn.
+- Kết quả known được cache theo `(camera_id, track_id)` và có memory ngắn hạn để track gần đó kế thừa identity nếu phù hợp.
 
-Known person config nằm trong `config/settings.yaml`:
+Known person enrollment:
 
 ```yaml
 identity:
   enabled: true
   unknown_person_label: Stranger
-  model: buffalo_l
+  model: buffalo_sc
   model_root: models/insightface
-  device: auto
+  device: cuda:0
   similarity_threshold: 0.45
-  detection_size: 640
+  detection_size: 320
   min_detection_score: 0.5
-  min_face_size: 24
-  recognition_interval_frames: 5
+  min_face_size: 30
+  recognition_interval_frames: 10
+  reference_orientations:
+  - none
+  - cw90
+  - ccw90
+  - '180'
   known_persons:
-  - name: Ba
+  - name: me
     reference_images:
-    - config/known_people/ba_front.jpg
+    - config/known_people/me
 ```
 
-Resolver chạy InsightFace một lần trên toàn frame, ghép face bbox vào person
-bbox, rồi so cosine embedding với các ảnh tham chiếu. Kết quả known person được
-cache theo `(camera_id, track_id)`; các track chưa biết được thử lại theo
-`recognition_interval_frames`. Inference được khóa để nhiều camera không gọi
-chung ONNX session đồng thời.
+`reference_images` có thể là file ảnh hoặc folder. Nếu là folder, resolver load `*.jpg`, `*.jpeg`, `*.png`, `*.bmp`, `*.webp`.
 
-Model `buffalo_l` tự tải ở lần dùng đầu tiên. Pretrained model do InsightFace
-cung cấp chỉ dành cho nghiên cứu phi thương mại; production thương mại cần
-model có giấy phép phù hợp.
+Ví dụ thêm người mới:
 
-## 8. Behavior Analytics
+```yaml
+  - name: Nguyên
+    reference_images:
+    - config/known_people/nguyen
+```
 
-`analytics/behavior_engine.py::BehaviorEngine` là orchestrator. Mỗi frame đã track đi qua các rule theo thứ tự:
+Ảnh nên rõ mặt, một người mỗi ảnh, nhiều góc sáng/khoảng cách. InsightFace pretrained model phù hợp nghiên cứu phi thương mại; production cần kiểm tra license model.
+
+## 8. Behavior analytics
+
+`analytics/behavior_engine.py::BehaviorEngine` là orchestrator.
+
+Thứ tự rule:
 
 1. `IntrusionDetector`
 2. `LoiteringDetector`
-3. `SuspiciousStrangerDetector`
-4. `AssetWatchDetector`
-5. `SuspiciousTheftDetector`
-6. `LineCounter`
-7. `BehaviorLearningService.enrich_alerts`
+3. `UnknownPersonDetector`
+4. `SuspiciousStrangerDetector`
+5. `AssetWatchDetector`
+6. `SuspiciousTheftDetector`
+7. `LineCounter`
+8. `BehaviorLearningService.enrich_alerts`
 
-### Zone Và Line Model
-
-Zone nằm trong camera YAML:
+Zone config:
 
 ```yaml
 zones:
@@ -291,7 +324,7 @@ zones:
   threshold_seconds: 30
 ```
 
-Line nằm trong camera YAML:
+Line config:
 
 ```yaml
 lines:
@@ -304,35 +337,40 @@ lines:
 
 Coordinate rule:
 
-- Nếu `x` và `y` trong khoảng `0.0..1.0`, code hiểu là normalized coordinate.
-- Nếu lớn hơn 1, code hiểu là pixel coordinate.
-- UI editor hiện lưu normalized coordinate, nên config ít phụ thuộc resolution.
+- `0.0..1.0` là normalized coordinate.
+- Lớn hơn 1 là pixel coordinate.
+- UI editor lưu normalized coordinate.
 
 Zone type:
 
-| Type | Rule áp dụng |
+| Type | Rule |
 | --- | --- |
 | `all` | Áp dụng cho mọi rule dựa trên zone. |
 | `intrusion` | Intrusion. |
 | `loitering` | Loitering. |
 | `stranger_watch` | Suspicious stranger. |
 | `asset_watch` | Asset removal và suspicious theft. |
-| `counting` | Legacy/placeholder cho vùng counting; line counter dùng `lines`, không dùng zone. |
+| `counting` | Legacy/placeholder; line counter dùng `lines`. |
 
-### Rule Summary
+Auto global zone:
 
-| Rule | Input | Khi nào alert |
-| --- | --- | --- |
-| Intrusion | Zone `intrusion` hoặc legacy `all` | Báo một lần khi person bắt đầu chiếm vùng. Chỉ re-arm sau khi vùng không còn person quá `intrusion_reset_frames`; class mặc định là `person`. |
-| Loitering | Zone `loitering` hoặc `all` | Object ở trong zone lâu hơn `threshold_seconds` hoặc `behavior.loitering_threshold_seconds`. |
-| Suspicious stranger | Zone `stranger_watch` hoặc `all` | Unknown person ở trong zone đủ lâu và có pattern đứng yên hoặc đi qua lại gần khu vực. |
-| Asset watch | Zone `asset_watch` hoặc `all` | Asset biến mất hoặc rời zone sau khi có unknown person ở gần trong window thời gian. |
-| Suspicious theft | Zone `asset_watch` hoặc `all` | Unknown person ở gần vehicle/asset và đủ score từ duration, pacing, vehicle movement, same direction, pose push. |
-| Line crossing | `lines` | Track center đi qua line, tăng counter `in/out` và tạo alert `line_crossing`. |
+- `auto_global_zone` mặc định `true`.
+- Nếu camera thiếu zone `intrusion` hoặc `stranger_watch`, engine tự thêm full-frame zone tương ứng.
+- Auto zone không được dùng để loại stranger khỏi unknown-person alert outside intrusion zone logic.
 
-### Alert Payload
+Rule summary:
 
-Các rule trả về dict alert. Trường phổ biến:
+| Rule | Khi alert |
+| --- | --- |
+| Intrusion | Person/object allowed class đi vào zone `intrusion`/`all`; re-arm sau khi vùng trống đủ `intrusion_reset_frames`. |
+| Loitering | Object ở trong zone đủ lâu. |
+| Unknown person | Person đã được xác nhận stranger, thường dùng cho live camera khi không match known face. |
+| Suspicious stranger | Stranger ở trong zone đủ lâu và có pattern đứng yên/đi qua lại. |
+| Asset watch | Asset biến mất/rời zone sau khi có stranger gần đó. |
+| Suspicious theft | Stranger gần vehicle/asset và score đủ cao từ duration, pacing, movement, same direction, pose push. |
+| Line crossing | Track center đi qua line, tăng counter `in/out`, tạo alert `line_crossing`. |
+
+Alert payload thường có:
 
 ```text
 type
@@ -340,45 +378,39 @@ camera_id
 camera_name
 track_id
 class_id / class_name
-zone_id / zone_name hoặc line_id / line_name
+zone_id / zone_name
+line_id / line_name
 timestamp
 details
 siren
 ```
 
-Pipeline sẽ thêm:
+Pipeline thêm:
 
 - `notification_channels` từ camera config;
-- `frame` là annotated frame copy để notification gửi ảnh.
+- `frame` là annotated frame copy cho notification image.
 
-`BehaviorLearningService` có thể thêm:
+## 9. Behavior learning
 
-- `behavior_event_id`;
-- `behavior_features`;
-- `behavior_risk_score`;
-- `behavior_suppressed` nếu bật gate.
-
-## 9. Behavior Learning Pipeline
-
-Behavior learning nằm sau rule-based analytics. Rule vẫn là nguồn tạo candidate trước.
+Behavior learning là lớp enrich sau rule-based analytics. Rule engine vẫn tạo candidate trước.
 
 Luồng:
 
 ```text
-Behavior rules produce alerts
-  -> BehaviorLearningService extracts numeric features
+behavior rules produce alerts
+  -> extract numeric features
   -> append JSONL candidate event
-  -> optional logistic model scores risk
-  -> optional gate suppresses low-risk alerts
+  -> optional logistic risk score
+  -> optional gate suppress low-risk alert
   -> remaining alerts go to AlertManager
 ```
 
-Artifacts:
+Artifacts hiện tại:
 
-| File | Ý nghĩa |
+| Path | Ý nghĩa |
 | --- | --- |
-| `data/behavior_events.jsonl` | Candidate events được append khi runtime chạy. |
-| `data/behavior_labels.csv` | Labels do user/API tạo. |
+| `data/behavior_events.jsonl` | Candidate events khi `behavior_learning.log_candidates: true`. |
+| `data/behavior_labels.csv` | Labels do API/user tạo. |
 | `models/behavior_classifier.npz` | Logistic model train bằng script. |
 
 Training:
@@ -387,32 +419,32 @@ Training:
 .\.venv\Scripts\python.exe scripts\train_behavior_classifier.py --labels data\behavior_labels.csv
 ```
 
-API hỗ trợ:
+API:
 
 ```text
 GET /api/behavior-events?limit=100
 POST /api/behavior-events/{event_id}/label
 ```
 
-Chi tiết label workflow nằm ở `docs/behavior-learning.md`.
+Chi tiết workflow nằm ở `docs/behavior-learning.md`.
 
-## 10. Alert Manager Và Notification
+## 10. Alert manager và notification
 
-`notifications/alert_manager.py::AlertManager` chạy một async worker trong event loop của FastAPI.
+`notifications/alert_manager.py::AlertManager` chạy async worker trong FastAPI event loop.
 
-Pipeline thread không await trực tiếp. Thay vào đó:
+Luồng:
 
-1. Pipeline gọi `enqueue_threadsafe(alert)`.
-2. AlertManager dùng `loop.call_soon_threadsafe` để put vào `asyncio.Queue`.
+1. Pipeline thread gọi `enqueue_threadsafe(alert)`.
+2. AlertManager dùng `loop.call_soon_threadsafe` để đưa alert vào `asyncio.Queue`.
 3. Worker xử lý từng alert.
-4. Cooldown được kiểm theo key:
+4. Cooldown theo key:
 
 ```text
 (camera_id, alert_type, zone_id|line_id|zone_name|line_name|global)
 ```
 
 5. Nếu còn cooldown:
-   - alert được ghi history với `suppressed: true`;
+   - ghi history với `suppressed: true`;
    - không gửi Telegram/Discord/siren.
 6. Nếu không cooldown:
    - gửi Telegram nếu channel có `telegram`;
@@ -420,33 +452,21 @@ Pipeline thread không await trực tiếp. Thay vào đó:
    - trigger siren nếu alert có `siren: true`;
    - ghi history.
 
-Alert history:
+Trạng thái hiện tại:
 
-- In-memory, không persist DB.
+- Alert history vẫn in-memory.
 - Mỗi camera giữ tối đa 200 records.
 - API đọc qua `GET /api/alerts/{cam_id}`.
-- Restart app sẽ mất history.
+- Restart app mất history.
+- SQLite schema đã có bảng `alerts` và `notification_deliveries`, nhưng runtime chưa wire persistence vào AlertManager.
 
-Notification config:
+Security:
 
-```yaml
-telegram:
-  bot_token: "<secret>"
-  chat_id: "<chat/group id>"
-  enabled: true
-  cooldown_seconds: 10
-  max_retries: 3
+- Token Telegram/webhook Discord đang đọc từ `config/settings.yaml`.
+- Không commit settings thật lên repo public.
+- Khi viết docs/report, không paste token thật.
 
-discord:
-  webhook_url: "<secret>"
-  username: SCT Camera
-  enabled: true
-  max_retries: 3
-```
-
-Security note: app hiện đọc token/webhook trực tiếp từ `config/settings.yaml`. Không commit file này lên repo public nếu chứa credential thật.
-
-## 11. FrameBuffer Và MJPEG Streaming
+## 11. FrameBuffer và MJPEG streaming
 
 `core/frame_buffer.py::FrameBuffer` là boundary thread-safe giữa pipeline thread và web stream.
 
@@ -454,27 +474,28 @@ Nó giữ:
 
 - latest annotated frame;
 - latest JPEG bytes;
-- status (`offline`, `connecting`, `online`, `degraded`, `paused`);
+- status: `offline`, `connecting`, `online`, `degraded`, `paused`;
 - object count;
 - alert count;
 - FPS estimate;
-- version number.
+- AI latency;
+- frame version.
 
-`/api/stream/{cam_id}` dùng `wait_for_jpeg(last_version)`:
+`/api/stream/{cam_id}`:
 
-- Nếu có frame mới, trả JPEG mới.
-- Nếu chưa có frame, trả placeholder image có status/error.
-- Streaming response dùng MJPEG boundary `multipart/x-mixed-replace`.
+- Dùng `wait_for_jpeg(last_version)`.
+- Có frame mới thì trả JPEG mới.
+- Chưa có frame thì trả placeholder status/error.
+- Streaming response dùng `multipart/x-mixed-replace`.
+- Dashboard chỉ cần `<img src="/api/stream/{cam_id}">`, không cần WebSocket.
 
-Dashboard `<img src="/api/stream/{cam_id}">` hiển thị stream mà không cần WebSocket.
-
-## 12. Web Dashboard Và API Workflow
+## 12. Web dashboard và API
 
 Pages:
 
 | Route | Template | Vai trò |
 | --- | --- | --- |
-| `/` | `dashboard.html` | Live wall nhiều camera, metrics, bật/tắt camera. |
+| `/` | `dashboard.html` | Live wall nhiều camera, metrics, toggle camera. |
 | `/camera/{cam_id}` | `camera_detail.html` | Stream lớn, ROI editor, line editor, alert table. |
 | `/settings` | `settings.html` | Camera registry, detection/behavior/pipeline/notification settings. |
 
@@ -482,11 +503,11 @@ Static JS:
 
 | File | Vai trò |
 | --- | --- |
-| `web/static/js/main.js` | Fetch wrapper, polling `/api/cameras`, update metrics, settings forms, test alert buttons, camera toggles. |
-| `web/static/js/roi_editor.js` | Vẽ/sửa polygon trên stream, save/delete zones qua zone API. |
-| `web/static/js/line_editor.js` | Vẽ/sửa line endpoints, save/delete lines qua line API. |
+| `web/static/js/main.js` | Fetch wrapper, polling, camera/settings forms, test alert, toggles. |
+| `web/static/js/roi_editor.js` | Vẽ/sửa polygon zone. |
+| `web/static/js/line_editor.js` | Vẽ/sửa line endpoints. |
 
-Important API:
+API chính:
 
 | Method | Path | Chức năng |
 | --- | --- | --- |
@@ -496,57 +517,103 @@ Important API:
 | `POST` | `/api/cameras/{cam_id}/enabled` | Persist enabled state và start/stop pipeline. |
 | `GET/POST/DELETE` | `/api/cameras/{cam_id}/zones` | Quản lý ROI zones. |
 | `GET/POST/DELETE` | `/api/cameras/{cam_id}/lines` | Quản lý counting lines. |
-| `PUT` | `/api/settings` | Deep-merge settings, persist YAML, áp dụng phần runtime-safe. |
+| `PUT` | `/api/settings` | Deep-merge settings, persist YAML, apply runtime-safe changes. |
 | `POST` | `/api/settings/telegram/test` | Gửi test Telegram. |
 | `POST` | `/api/settings/discord/test` | Gửi test Discord. |
-| `POST` | `/api/detection/toggle/{cam_id}` | Pause/resume detection không persist camera config. |
-| `POST` | `/api/detection/toggle-all` | Pause/resume detection cho enabled cameras, không persist enabled state. |
+| `POST` | `/api/detection/toggle/{cam_id}` | Pause/resume detection runtime, không đổi YAML enabled. |
+| `POST` | `/api/detection/toggle-all` | Pause/resume detection cho enabled cameras. |
 | `GET` | `/api/alerts/{cam_id}` | Alert history in-memory. |
 | `GET` | `/api/behavior-events` | Behavior learning candidates. |
 | `POST` | `/api/behavior-events/{event_id}/label` | Gán label cho candidate. |
 
-Lưu ý UI hiện dùng `/api/cameras/{cam_id}/enabled` cho switch online/offline, nghĩa là có persist vào camera YAML. Endpoint `/api/detection/toggle*` là runtime pause/resume riêng và không đổi config.
+## 13. SQLite migration foundation
 
-## 13. Config Model
+SQLite hiện là foundation cho Phase 1 persistence, chưa phải runtime store chính.
 
-### Global Settings
+`core/database.py::DatabaseManager`:
 
-Các nhóm chính trong `config/settings.yaml`:
+- tạo `schema_migrations` và `data_migrations`;
+- bật WAL, foreign keys, busy timeout;
+- apply numbered SQL trong `migrations/`;
+- mỗi migration chạy trong `BEGIN IMMEDIATE`;
+- không dùng `executescript()`, parse statement rồi execute từng statement;
+- lỗi thì rollback cả DDL và version marker;
+- dùng `contextlib.closing` để đóng connection sạch trên Windows.
+
+Schema hiện có:
+
+| Migration | Bảng |
+| --- | --- |
+| `001_core.sql` | `alerts`, `notification_deliveries` |
+| `002_behavior_events.sql` | `behavior_events`, `behavior_labels` |
+| `003_video_clips.sql` | `video_clips`, `alert_clips` |
+
+Quyết định Phase 0:
+
+- DB timestamps: Unix milliseconds UTC.
+- SQLite expected runtime design: one writer thread, bounded queue size 1000, short-lived read connections.
+- Evidence retention trong thesis eval: không tự xóa alerts/deliveries/behavior events/labels.
+- Corrupt DB: quarantine và degraded mode; không overwrite im lặng.
+
+Test migration nằm ở `tests/test_database.py`.
+
+## 14. Video clips và event recording status
+
+Plan Phase 2 đã có schema foundation:
+
+- `video_clips`;
+- `alert_clips`;
+- quyết định recording window trong `baseline_report.md`: 10 giây trước event, 20 giây sau event;
+- quyết định retention: quota 10 GB, giữ tối thiểu 2 GB free disk, không cleanup clip đang active.
+
+Runtime recording/clip writer hiện chưa implement trong pipeline. Khi implement, phải dùng ring buffer per camera và liên kết clip với `alerts.event_id`.
+
+## 15. Benchmark, backup, dataset manifest
+
+Scripts mới:
+
+| Script | Vai trò |
+| --- | --- |
+| `scripts/benchmark_baseline.py` | Đo FPS/latency/RAM/GPU cho 1/2 camera từ local video, xuất JSON/CSV. |
+| `scripts/prepare_phase0_backup.py` | Backup config/camera/runtime data, validate YAML/JSONL/CSV, ghi manifest SHA-256. |
+| `scripts/build_fall_dataset_manifest.py` | Validate/freeze manifest dataset fall detection. |
+| `scripts/train_behavior_classifier.py` | Train behavior risk logistic classifier. |
+
+Baseline đã ghi ở `baseline_report.md`:
+
+| Cameras | Aggregate FPS | AI p50 | AI p95 | AI p99 | Peak RSS |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 20.76 | 40.17 ms | 54.34 ms | 64.83 ms | 1,939.70 MB |
+| 2 | 24.47 | 73.23 ms | 92.71 ms | 104.45 ms | 2,097.41 MB |
+
+Fall dataset manifest hiện `blocked`:
+
+- thiếu `data/fall_dataset/ground_truth.csv`;
+- test fall events: 0, cần >= 30;
+- test non-fall events: 0, cần >= 50.
+
+Vì vậy Phase 1 gate theo plan vẫn chưa mở hoàn toàn nếu tuân thủ nghiêm checklist Phase 0.
+
+## 16. Config model
+
+Global groups trong `config/settings.yaml`:
 
 | Group | Ý nghĩa |
 | --- | --- |
-| `telegram` | Telegram bot token/chat id, enable, cooldown, retry. |
+| `telegram` | Bot token/chat id, enable, cooldown, retry. |
 | `discord` | Webhook URL, username, enable, retry. |
 | `detection` | YOLO model/device/classes/confidence/IoU/imgsz. |
-| `pose` | Pose model và điều kiện download. |
-| `tracking` | ByteTrack config, history, grace frames, duplicate threshold và camera motion compensation. |
-| `behavior` | Threshold và parameter cho intrusion/loitering/stranger/asset/theft. |
-| `behavior_learning` | Event log, model path, risk gate. |
-| `identity` | Known people references và unknown label. |
-| `siren` | Local beep/command behavior cho high severity alerts. |
-| `pipeline` | Frame skip, reconnect, processing size, video loop/drop, stream size, camera backend. |
-| `web` | Host/port dashboard. |
-| `logging` | Log level và file path. |
+| `pose` | Pose model, confidence, matching, download policy. |
+| `tracking` | ByteTrack, history, grace, duplicate suppression, CMC. |
+| `behavior` | Threshold/parameter cho intrusion, loitering, stranger, asset, theft. |
+| `behavior_learning` | Candidate log, model path, risk gate. |
+| `identity` | Known people, unknown label, InsightFace settings. |
+| `siren` | Beep/command behavior. |
+| `pipeline` | Frame skip, reconnect, analysis rate, stream size, video behavior. |
+| `web` | Host/port. |
+| `logging` | Level/file path. |
 
-`PUT /api/settings` deep-merge payload vào settings hiện tại. Sau khi save, runtime áp dụng một phần thay đổi mà không restart:
-
-- notification bots được rebuild;
-- behavior engine được rebuild;
-- detector threshold/class/imgsz/iou được update;
-- pose settings được update;
-- pipeline runtime knobs được update;
-- frame buffer stream height được update.
-
-Một số thay đổi vẫn nên restart để chắc chắn sạch state:
-
-- đổi model YOLO chính;
-- đổi device CPU/GPU;
-- đổi cấu trúc lớn của camera registry ngoài API;
-- sửa code behavior rule.
-
-### Camera Config
-
-Ví dụ:
+Camera config ví dụ:
 
 ```yaml
 camera_id: front_gate
@@ -556,6 +623,8 @@ enabled: true
 notification_channels:
 - telegram
 - discord
+auto_global_zone: true
+unknown_person_policy: face_match
 zones:
 - id: gate_roi
   name: Gate ROI
@@ -575,87 +644,113 @@ lines:
 
 `source` có thể là:
 
-- `0`, `1`, ... cho webcam index;
-- đường dẫn video file;
+- webcam index: `0`, `1`;
+- file video local;
 - RTSP URL.
 
-`notification_channels` được normalize về subset `telegram`, `discord`. Nếu thiếu hoặc invalid, runtime fallback `telegram`.
+`notification_channels` normalize về subset `telegram`, `discord`. Nếu thiếu/invalid, runtime fallback `telegram`.
 
-## 14. Logging Và Runtime Artifacts
-
-Logging:
-
-- Console log qua Python logging.
-- File log theo `logging.file`, mặc định `logs/sct_camera.log`.
-
-Runtime/generated artifacts:
+## 17. Runtime/generated artifacts
 
 | Path | Nguồn tạo |
 | --- | --- |
 | `logs/sct_camera.log` | Runtime logging. |
-| `data/behavior_events.jsonl` | BehaviorLearningService khi `log_candidates: true`. |
-| `data/behavior_labels.csv` | API label event hoặc user tạo thủ công. |
+| `data/behavior_events.jsonl` | BehaviorLearningService khi log candidates. |
+| `data/behavior_labels.csv` | Behavior event label API/user. |
 | `models/behavior_classifier.npz` | Training script. |
+| `data/benchmarks/baseline.json` | Benchmark baseline output. |
+| `data/benchmarks/baseline.csv` | Benchmark baseline output. |
+| `data/backups/phase0_*` | Backup script. |
+| `docs/fall_dataset_manifest.json` | Dataset manifest script. |
 | `config/cameras/*.yaml` | UI/API camera/zone/line changes. |
 | `config/settings.yaml` | UI/API settings changes. |
 
-## 15. Performance Tuning
+## 18. Tests và dev workflow
 
-Các knob ảnh hưởng nhiều nhất:
+Dev dependencies:
 
-| Setting | Tăng lên thì | Giảm xuống thì |
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+```
+
+Run tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests -v
+```
+
+Test suite hiện có:
+
+- `tests/test_asset_watch.py`
+- `tests/test_database.py`
+- `tests/test_detector.py`
+- `tests/test_frame_buffer.py`
+- `tests/test_intrusion.py`
+- `tests/test_person_alerts.py`
+- `tests/test_person_identity.py`
+- `tests/test_pipeline.py`
+- `tests/test_runtime_settings.py`
+- `tests/test_theft_behavior.py`
+- `tests/test_tracker_cmc.py`
+
+Kết quả Phase 0 gần nhất: `72 passed`.
+
+## 19. Performance tuning
+
+Knob ảnh hưởng nhiều:
+
+| Setting | Tăng lên | Giảm xuống |
 | --- | --- | --- |
-| `pipeline.frame_skip` | Nhẹ GPU/CPU hơn, alert chậm hơn. | Mượt/chính xác hơn, tốn tài nguyên hơn. |
-| `pipeline.processing_max_height` | Frame lớn hơn, chính xác hơn, chậm hơn. | Nhanh hơn, có thể mất object nhỏ. |
-| `detection.imgsz` | Chính xác hơn, chậm hơn. | Nhanh hơn, có thể kém chính xác. |
+| `pipeline.frame_skip` | Nhẹ hơn, alert chậm hơn. | Mượt/chính xác hơn, tốn tài nguyên hơn. |
+| `pipeline.ai_max_fps` | AI chạy thường hơn, latency có thể tăng nếu quá cao. | Nhẹ hơn, snapshot có thể stale hơn. |
+| `pipeline.processing_max_height` | Chính xác hơn, chậm hơn. | Nhanh hơn, dễ mất object nhỏ. |
+| `detection.imgsz` | Chính xác hơn, chậm hơn. | Nhanh hơn, kém chính xác hơn. |
 | `detection.model` | Model lớn chính xác hơn, nặng hơn. | Model nhỏ nhanh hơn. |
-| `detection.classes` | Nhiều class hơn, nhiều object/rule hơn. | Ít class hơn, nhẹ hơn và ít noise hơn. |
+| `detection.classes` | Nhiều class/rule hơn, nhiều noise hơn. | Nhẹ hơn, ít noise hơn. |
 | `tracking.track_grace_frames` | Track ổn hơn khi mất detection ngắn. | Ít stale object hơn. |
-| `tracking.duplicate_iou_threshold` | Dedupe mạnh/yếu tùy threshold. | Cần tune nếu thấy duplicate boxes. |
-| `tracking.camera_motion_compensation.enabled` | Ổn định association khi camera rung/pan nhẹ. | Tắt để giảm thêm chi phí CPU với camera cố định tuyệt đối. |
-| `tracking.camera_motion_compensation.downscale` | Giá trị nhỏ giữ nhiều chi tiết hơn. | Giá trị lớn chạy optical flow nhanh hơn. |
+| `tracking.camera_motion_compensation.enabled` | Ổn định hơn khi camera rung/pan nhẹ. | Nhẹ CPU hơn với camera cố định. |
+| `identity.similarity_threshold` | Ít nhận nhầm hơn, dễ miss hơn. | Dễ nhận ra hơn, tăng risk nhận nhầm. |
 
-Vì detector dùng chung một model và lock inference, nhiều camera sẽ chia sẻ GPU theo kiểu tuần tự ở bước inference. Nếu scale nhiều camera, bottleneck chính thường là YOLO inference, không phải FastAPI.
+Vì detector dùng chung model và inference lock, nhiều camera sẽ chia GPU theo kiểu tuần tự ở bước inference. Bottleneck thường là YOLO/pose, không phải FastAPI.
 
-## 16. Troubleshooting Nhanh
+## 20. Troubleshooting nhanh
 
-### Camera offline hoặc không mở được webcam
+### Camera offline hoặc không mở webcam
 
 Kiểm tra:
 
 - `source` đúng index/path/RTSP URL chưa;
-- `pipeline.camera_backend` là `msmf`, `dshow` hay `any`;
-- webcam có đang bị app khác chiếm không;
-- log có lỗi OpenCV backend không;
-- với RTSP, camera có yêu cầu TCP/UDP cụ thể không.
+- `pipeline.camera_backend`;
+- webcam có bị app khác chiếm không;
+- log OpenCV backend;
+- RTSP có cần TCP/URL stream đúng không.
 
-### Video file chạy quá nhanh hoặc quá chậm
+### Video file chạy quá nhanh/chậm
 
 Kiểm tra:
 
 - `pipeline.realtime_video_playback`;
-- FPS metadata của file;
+- FPS metadata file;
 - `pipeline.drop_late_video_frames`;
-- GPU/CPU có theo kịp detection không.
+- GPU/CPU có theo kịp không.
 
 ### CUDA không chạy
-
-Kiểm tra:
 
 ```powershell
 python -c "import torch; print(torch.cuda.is_available())"
 ```
 
-Nếu false, detector fallback CPU. Cần cài PyTorch CUDA build đúng CUDA driver.
+Nếu false, detector fallback CPU. Cần PyTorch CUDA build đúng driver.
 
-### Pose không hoạt động
+### Identity không nhận đúng người
 
 Kiểm tra:
 
-- `pose.enabled: true`;
-- file model `yolo11n-pose.pt` có tồn tại không;
-- nếu không có file local, `pose.allow_download` phải true và máy phải có Internet;
-- chỉ person objects mới chạy pose attach.
+- ảnh trong `config/known_people/<person>` có rõ mặt không;
+- mỗi ảnh chỉ có một người;
+- `identity.min_face_size` và `min_detection_score`;
+- live camera có đủ sáng/góc mặt không;
+- `similarity_threshold`: thử giảm nhẹ nếu miss, tăng nếu nhận nhầm.
 
 ### Không có alert
 
@@ -663,10 +758,11 @@ Kiểm tra:
 
 - camera có zone/line chưa;
 - zone polygon có ít nhất 3 điểm;
-- zone type có match rule không;
+- zone type match rule chưa;
+- `auto_global_zone` có bật không;
 - object class có nằm trong `detection.classes` không;
-- threshold có quá cao không;
-- alert có bị `behavior_learning.gate_alerts` suppress không.
+- behavior threshold có quá cao không;
+- `behavior_learning.gate_alerts` có suppress không.
 
 ### Alert gửi quá nhiều
 
@@ -675,64 +771,68 @@ Tune:
 - `telegram.cooldown_seconds`;
 - zone `threshold_seconds`;
 - behavior thresholds;
-- camera-specific `notification_channels`;
+- camera `notification_channels`;
 - detection confidence/IoU/classes.
 
-### Alert không gửi ra Telegram/Discord
+### Alert không gửi Telegram/Discord
 
 Kiểm tra:
 
-- `enabled` của channel;
+- channel `enabled`;
 - token/webhook/chat id;
 - camera `notification_channels`;
 - network;
 - log retry trong `logs/sct_camera.log`;
 - history API có `sent`, `suppressed`, `telegram_sent`, `discord_sent` không.
 
-## 17. Khi Sửa Code Nên Bắt Đầu Từ Đâu
+## 21. Khi sửa code nên bắt đầu từ đâu
 
 ### Thêm behavior rule mới
 
 1. Tạo detector mới trong `analytics/`.
-2. Define input cần dùng: zones, lines, tracked objects, pose, identity, frame shape.
+2. Define input: zones, lines, tracked objects, pose, identity, frame shape.
 3. Instantiate trong `BehaviorEngine.__init__`.
-4. Gọi rule trong `BehaviorEngine.analyze`.
-5. Nếu cần zone type mới:
-   - update API validation trong `web/routes/config_api.py`;
-   - update ROI editor/UI nếu user cần chọn type;
-   - update docs/config examples.
+4. Gọi trong `BehaviorEngine.analyze`.
+5. Nếu thêm zone type, update API validation/UI/docs.
 6. Trả alert payload theo shape chung.
-7. Nếu rule nên gửi siren, set `siren: true`.
+7. Nếu cần siren, set `siren: true`.
+8. Thêm test rule.
 
 ### Thêm notification channel mới
 
 1. Implement sender trong `notifications/`.
-2. Update `AlertManager` để build client, đọc channel, gửi song song.
-3. Update `ALERT_CHANNELS` và `_normalize_notification_channels`.
-4. Update settings UI/API nếu user cần cấu hình channel.
-5. Update camera config docs.
+2. Update `AlertManager`.
+3. Update channel normalize/validation.
+4. Update settings UI/API.
+5. Update docs/config examples.
 
-### Thêm field settings mới
+### Thêm persistence runtime vào SQLite
 
-1. Thêm default usage trong module sở hữu behavior đó.
-2. Nếu chỉnh được từ UI, update `settings.html` và `main.js`.
-3. Nếu cần apply runtime không restart, update `RuntimeState.update_settings`.
-4. Nếu không apply runtime được, ghi rõ cần restart.
+1. Không ghi DB trực tiếp từ pipeline thread.
+2. Thêm writer queue/service một nơi sở hữu connection write.
+3. Pipeline/AlertManager chỉ enqueue event/delivery.
+4. Read API dùng short-lived read connection.
+5. Giữ WAL + foreign keys + busy timeout.
+6. Test idempotent migration, rollback, concurrent read/write cơ bản.
 
-### Thêm API mới
+### Thêm event recording
 
-1. Đặt route trong `web/routes/config_api.py` nếu liên quan runtime/config.
-2. Thêm method vào `RuntimeState` để giữ ownership state/persistence.
-3. Nếu route đọc frame/stream, dùng `FrameBuffer` thay vì chạm trực tiếp pipeline internals.
+1. Thêm ring buffer frame per camera.
+2. Khi alert đến, lấy pre-roll từ ring buffer.
+3. Ghi clip ở worker riêng, không block pipeline.
+4. Insert `video_clips`.
+5. Link `alert_clips` bằng `alert_event_id`.
+6. Cleanup theo quota, không xóa active clip.
 
-## 18. Known Constraints
+## 22. Known constraints
 
-- Dashboard chưa có authentication. Chỉ nên chạy trong LAN hoặc sau reverse proxy có auth.
-- Secrets đang nằm trong YAML settings nếu user nhập từ UI.
-- Alert history chỉ in-memory, restart là mất.
-- Camera settings persist bằng YAML file, chưa có database.
-- Behavior rules là stateful trong memory; restart sẽ reset state/counters.
+- Dashboard chưa có authentication; chỉ nên chạy LAN hoặc sau reverse proxy có auth.
+- Secrets vẫn nằm trong YAML settings nếu user nhập từ UI.
+- Alert history runtime vẫn in-memory; restart là mất.
+- SQLite schema/migration đã có, nhưng persistence runtime chưa wire.
+- Event recording schema đã có, clip writer chưa implement.
+- Behavior rules stateful trong memory; restart reset state/counters.
 - Detector model dùng chung lock inference; nhiều camera có thể nghẽn ở GPU inference.
-- Identity resolver phụ thuộc chất lượng/góc mặt và threshold; không nên xem là xác thực danh tính tuyệt đối.
-- Behavior learning model là logistic classifier nhẹ, không thay thế rule engine.
-- Project hiện chưa có test suite rõ ràng; thay đổi behavior nên được test bằng video sample hoặc script riêng.
+- Identity resolver phụ thuộc chất lượng/góc mặt/threshold; không phải xác thực danh tính tuyệt đối.
+- Behavior learning là logistic classifier nhẹ, không thay rule engine.
+- Fall detection dataset manifest đang blocked vì thiếu dataset/ground truth.

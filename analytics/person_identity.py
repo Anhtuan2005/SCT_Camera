@@ -48,6 +48,10 @@ class PersonIdentityResolver:
             0,
             int(identity.get("unknown_confirmation_attempts", 2)),
         )
+        self.max_pending_frames = max(
+            0,
+            int(identity.get("max_pending_frames", 30)),
+        )
         self.threshold = float(identity.get("similarity_threshold", 0.45))
         self.min_detection_score = float(
             identity.get("min_detection_score", 0.5)
@@ -108,6 +112,7 @@ class PersonIdentityResolver:
             tuple[str, str, float | None],
         ] = {}
         self._failed_attempt_counts: dict[tuple[str, int], int] = {}
+        self._track_first_seen_frame: dict[tuple[str, int], int] = {}
         self._camera_frame_counts: dict[str, int] = {}
         self._last_attempt_frame: dict[tuple[str, int], int] = {}
         self._camera_orientation_offsets: dict[str, int] = {}
@@ -137,6 +142,11 @@ class PersonIdentityResolver:
         frame_number = self._camera_frame_counts.get(camera_id, 0) + 1
         self._camera_frame_counts[camera_id] = frame_number
         self._remove_stale_identity_memory(camera_id, frame_number)
+        for obj in objects:
+            if obj.class_name == "person":
+                key = (camera_id, obj.track_id)
+                if key not in self._track_first_seen_frame:
+                    self._track_first_seen_frame[key] = frame_number
         unresolved = [
             obj
             for obj in objects
@@ -146,6 +156,7 @@ class PersonIdentityResolver:
         ]
 
         matches: dict[int, tuple[str, float]] = {}
+        assessed_track_ids: set[int] = set()
         recognition_attempted = False
         if (
             unresolved
@@ -155,7 +166,11 @@ class PersonIdentityResolver:
             and self._ensure_ready()
         ):
             recognition_attempted = True
-            matches = self._match_people(camera_id, unresolved, frame_bgr)
+            matches, assessed_track_ids = self._match_people(
+                camera_id,
+                unresolved,
+                frame_bgr,
+            )
             for obj in unresolved:
                 key = (camera_id, obj.track_id)
                 self._last_attempt_frame[key] = frame_number
@@ -269,6 +284,7 @@ class PersonIdentityResolver:
             self._track_cache.pop(key, None)
             self._last_attempt_frame.pop(key, None)
             self._failed_attempt_counts.pop(key, None)
+            self._track_first_seen_frame.pop(key, None)
 
     def _remember_known_identity(
         self,
@@ -337,6 +353,12 @@ class PersonIdentityResolver:
     def _identity_still_pending(self, key: tuple[str, int]) -> bool:
         if not self.enabled or not self.references:
             return False
+        if self.max_pending_frames > 0:
+            camera_id = key[0]
+            frame_number = self._camera_frame_counts.get(camera_id, 0)
+            first_seen = self._track_first_seen_frame.get(key, frame_number)
+            if frame_number - first_seen >= self.max_pending_frames:
+                return False
         return (
             self._failed_attempt_counts.get(key, 0)
             < self.unknown_confirmation_attempts
@@ -411,8 +433,9 @@ class PersonIdentityResolver:
         camera_id: str,
         people: list[TrackedObject],
         frame_bgr: np.ndarray,
-    ) -> dict[int, tuple[str, float]]:
+    ) -> tuple[dict[int, tuple[str, float]], set[int]]:
         matches: dict[int, tuple[str, float]] = {}
+        assessed_track_ids: set[int] = set()
         matched_orientation: str | None = None
         for orientation, faces in self._analyze_face_sets(
             frame_bgr,
@@ -447,6 +470,7 @@ class PersonIdentityResolver:
                 person = self._person_for_face(face_bbox, people, set(matches))
                 if person is None:
                     continue
+                assessed_track_ids.add(person.track_id)
                 best_name, best_score = self._best_reference_score(embedding)
                 if best_score >= self.threshold:
                     matches[person.track_id] = (best_name, best_score)
@@ -469,7 +493,7 @@ class PersonIdentityResolver:
             if len(matches) >= len(people):
                 break
         self._update_orientation_offset(camera_id, matched_orientation)
-        return matches
+        return matches, assessed_track_ids
 
     def _analyze_faces(self, image_bgr: np.ndarray) -> list[Any]:
         for _orientation, faces in self._analyze_face_sets(

@@ -117,7 +117,7 @@ class PersonIdentityTests(unittest.TestCase):
             np.zeros((240, 160, 3), dtype=np.uint8),
         )
 
-        self.assertEqual(STRANGER_KIND, labeled[0].identity_kind)
+        self.assertEqual(PENDING_PERSON_KIND, labeled[0].identity_kind)
 
     def test_known_track_uses_cache_without_repeated_inference(self) -> None:
         resolver, analyzer = _resolver([1.0, 0.0])
@@ -217,7 +217,7 @@ class PersonIdentityTests(unittest.TestCase):
         self.assertEqual("Alice", labeled[0].identity_label)
         self.assertEqual([(240, 160), (160, 240)], analyzer.calls)
 
-    def test_person_without_usable_face_becomes_stranger_after_confirmation_attempts(self) -> None:
+    def test_person_without_usable_face_stays_pending(self) -> None:
         resolver = PersonIdentityResolver(
             {
                 "identity": {
@@ -243,8 +243,8 @@ class PersonIdentityTests(unittest.TestCase):
 
         self.assertEqual(PENDING_PERSON_KIND, first[0].identity_kind)
         self.assertEqual("Identifying", first[0].identity_label)
-        self.assertEqual(STRANGER_KIND, second[0].identity_kind)
-        self.assertEqual("Stranger", second[0].identity_label)
+        self.assertEqual(PENDING_PERSON_KIND, second[0].identity_kind)
+        self.assertEqual("Identifying", second[0].identity_label)
 
     def test_assume_unknown_policy_labels_no_face_person_as_stranger(self) -> None:
         resolver = PersonIdentityResolver(
@@ -343,7 +343,7 @@ class PersonIdentityTests(unittest.TestCase):
             frame,
         )
 
-        self.assertEqual(STRANGER_KIND, labeled[0].identity_kind)
+        self.assertEqual(PENDING_PERSON_KIND, labeled[0].identity_kind)
 
     def test_small_nearby_track_does_not_inherit_recent_known_identity(self) -> None:
         resolver, _analyzer = _resolver([1.0, 0.0])
@@ -358,7 +358,7 @@ class PersonIdentityTests(unittest.TestCase):
             frame,
         )
 
-        self.assertEqual(STRANGER_KIND, labeled[0].identity_kind)
+        self.assertEqual(PENDING_PERSON_KIND, labeled[0].identity_kind)
 
     def test_pending_person_retries_without_waiting_recognition_interval(self) -> None:
         resolver = PersonIdentityResolver(
@@ -387,7 +387,7 @@ class PersonIdentityTests(unittest.TestCase):
         second = resolver.label_objects("cam", [_person(14)], frame)
 
         self.assertEqual(PENDING_PERSON_KIND, first[0].identity_kind)
-        self.assertEqual(STRANGER_KIND, second[0].identity_kind)
+        self.assertEqual(PENDING_PERSON_KIND, second[0].identity_kind)
         self.assertEqual(2, analyzer.calls)
 
     def test_reference_images_can_use_different_orientations_than_live_stream(self) -> None:

@@ -38,6 +38,9 @@ class YOLOv11Detector:
         self.person_max_aspect_ratio = float(
             detection_settings.get("person_max_aspect_ratio", 4.0)
         )
+        self.person_min_bbox_area = int(
+            detection_settings.get("person_min_bbox_area", 3000)
+        )
         self.device = str(detection_settings.get("device", "cuda:0"))
         self.use_half = bool(detection_settings.get("half", True))
         self.imgsz = int(detection_settings.get("imgsz", 640))
@@ -99,6 +102,7 @@ class YOLOv11Detector:
                 bbox,
                 class_name,
                 self.person_max_aspect_ratio,
+                self.person_min_bbox_area,
             ):
                 continue
             detections.append(
@@ -152,6 +156,12 @@ class YOLOv11Detector:
             detection_settings.get(
                 "person_max_aspect_ratio",
                 self.person_max_aspect_ratio,
+            )
+        )
+        self.person_min_bbox_area = int(
+            detection_settings.get(
+                "person_min_bbox_area",
+                self.person_min_bbox_area,
             )
         )
         self.imgsz = int(detection_settings.get("imgsz", self.imgsz))
@@ -221,6 +231,7 @@ def _valid_detection_shape(
     bbox_xyxy: tuple[float, float, float, float],
     class_name: str,
     person_max_aspect_ratio: float,
+    person_min_bbox_area: int = 0,
 ) -> bool:
     if class_name != "person" or person_max_aspect_ratio <= 0:
         return True
@@ -231,4 +242,8 @@ def _valid_detection_shape(
     if width <= 0 or height <= 0:
         return False
     aspect_ratio = max(width / height, height / width)
-    return aspect_ratio <= person_max_aspect_ratio
+    if aspect_ratio > person_max_aspect_ratio:
+        return False
+    if person_min_bbox_area > 0 and width * height < person_min_bbox_area:
+        return False
+    return True

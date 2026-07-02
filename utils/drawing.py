@@ -7,6 +7,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from analytics.identity_status import KNOWN_PERSON_KIND
 from analytics.line_counter import CountingLine
 from analytics.zone import Zone
 from core.tracker import TrackedObject
@@ -280,6 +281,8 @@ def _line_thickness(frame: np.ndarray) -> int:
 def _object_label(obj: TrackedObject) -> str:
     if obj.class_name == "person":
         label = obj.identity_label or "person"
+        if obj.identity_kind == KNOWN_PERSON_KIND:
+            return label
         return f"{label} #{obj.track_id}"
     return f"{obj.class_name} #{obj.track_id}"
 

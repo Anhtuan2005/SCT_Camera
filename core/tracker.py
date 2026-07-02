@@ -14,6 +14,11 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+_MAX_LOST_TRACKS = 20
+_LOST_TRACK_DISTANCE_THRESHOLD = 0.08
+_LOST_TRACK_AREA_RATIO_MIN = 0.5
+_LOST_TRACK_AREA_RATIO_MAX = 2.0
+
 
 _TRACKER_ARG_TYPES: dict[str, type] = {
     "track_high_thresh": float,
@@ -58,6 +63,16 @@ class _SafeGMC:
 
     def reset_params(self) -> None:
         self._gmc.reset_params()
+
+
+@dataclass(frozen=True)
+class _LostTrack:
+    """Recently lost track for position-based re-identification."""
+
+    app_track_id: int
+    class_id: int
+    center: tuple[float, float]
+    bbox_area: float
 
 
 @dataclass(frozen=True)
@@ -111,6 +126,10 @@ class ByteTrackTracker:
         self._track_id_aliases: dict[tuple[int, int], int] = {}
         self._track_alias_keys: dict[int, tuple[int, int]] = {}
         self._next_track_alias = 1
+        self._recycled_ids: deque[int] = deque()
+        self._lost_track_positions: deque[_LostTrack] = deque(
+            maxlen=_MAX_LOST_TRACKS
+        )
 
     @property
     def grace_frames(self) -> int:
@@ -150,7 +169,7 @@ class ByteTrackTracker:
             return self._mark_missing_and_stale(set())
 
         active_ids = {
-            self._app_track_id(int(row[4]), int(row[6]))
+            self._app_track_id(int(row[4]), int(row[6]), row)
             for row in tracks
         }
         active_objects: list[TrackedObject] = []
@@ -159,7 +178,7 @@ class ByteTrackTracker:
             raw_track_id = int(row[4])
             confidence = float(row[5])
             class_id = int(row[6])
-            track_id = self._app_track_id(raw_track_id, class_id)
+            track_id = self._app_track_id(raw_track_id, class_id, row)
             x1, y1, x2, y2 = bbox
             center = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
             self._history[track_id].append(center)
@@ -196,6 +215,8 @@ class ByteTrackTracker:
         self._track_id_aliases.clear()
         self._track_alias_keys.clear()
         self._next_track_alias = 1
+        self._recycled_ids.clear()
+        self._lost_track_positions.clear()
 
     def update_settings(self, settings: dict[str, Any]) -> None:
         """Apply mutable tracker settings without rebuilding the pipeline."""
@@ -220,24 +241,82 @@ class ByteTrackTracker:
         self.tracker_arg_overrides.setdefault("track_buffer", 90)
         self._apply_tracker_arg_overrides(self._tracker)
 
-    def _app_track_id(self, raw_track_id: int, class_id: int) -> int:
+    def _app_track_id(self, raw_track_id: int, class_id: int, row: Any = None) -> int:
         key = (class_id, raw_track_id)
         existing = self._track_id_aliases.get(key)
         if existing is not None:
             return existing
+
+        # Try position-based re-ID with recently lost tracks
+        if row is not None:
+            reused = self._try_reuse_lost_track_id(class_id, row)
+            if reused is not None:
+                self._track_id_aliases[key] = reused
+                self._track_alias_keys[reused] = key
+                return reused
 
         if raw_track_id not in self._track_alias_keys:
             self._track_id_aliases[key] = raw_track_id
             self._track_alias_keys[raw_track_id] = key
             return raw_track_id
 
-        while self._next_track_alias in self._track_alias_keys:
+        # Use recycled ID if available, otherwise increment
+        app_track_id: int | None = None
+        while self._recycled_ids:
+            candidate = self._recycled_ids.popleft()
+            if candidate not in self._track_alias_keys:
+                app_track_id = candidate
+                break
+        if app_track_id is None:
+            while self._next_track_alias in self._track_alias_keys:
+                self._next_track_alias += 1
+            app_track_id = self._next_track_alias
             self._next_track_alias += 1
-        app_track_id = self._next_track_alias
-        self._next_track_alias += 1
+
         self._track_id_aliases[key] = app_track_id
         self._track_alias_keys[app_track_id] = key
         return app_track_id
+
+    def _try_reuse_lost_track_id(
+        self,
+        class_id: int,
+        row: Any,
+    ) -> int | None:
+        """Find a recently lost track at a similar position and reuse its ID."""
+        if not self._lost_track_positions:
+            return None
+        x1, y1, x2, y2 = float(row[0]), float(row[1]), float(row[2]), float(row[3])
+        center = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+        area = max(1.0, (x2 - x1) * (y2 - y1))
+        # Use bbox diagonal as distance reference
+        diag = max(1.0, ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5)
+        threshold = diag * (_LOST_TRACK_DISTANCE_THRESHOLD / 0.08) * 5.0
+
+        best_lost: _LostTrack | None = None
+        best_dist = float("inf")
+        for lost in self._lost_track_positions:
+            if lost.class_id != class_id:
+                continue
+            if lost.app_track_id in self._track_alias_keys:
+                continue
+            area_ratio = area / max(1.0, lost.bbox_area)
+            if area_ratio < _LOST_TRACK_AREA_RATIO_MIN or area_ratio > _LOST_TRACK_AREA_RATIO_MAX:
+                continue
+            dist = ((center[0] - lost.center[0]) ** 2 + (center[1] - lost.center[1]) ** 2) ** 0.5
+            if dist < threshold and dist < best_dist:
+                best_dist = dist
+                best_lost = lost
+
+        if best_lost is not None:
+            self._lost_track_positions.remove(best_lost)
+            logger.debug(
+                "Reusing lost track ID %d for class %d (dist=%.1f)",
+                best_lost.app_track_id,
+                class_id,
+                best_dist,
+            )
+            return best_lost.app_track_id
+        return None
 
     def _build_tracker(self) -> Any:
         from ultralytics.trackers.byte_tracker import BYTETracker
@@ -305,6 +384,24 @@ class ByteTrackTracker:
                 self._missing_frames[track_id] = missing_frames
                 stale_objects.append(self._last_objects[track_id])
                 continue
+            # Track expired — save position for re-ID, recycle ID
+            lost_obj = self._last_objects[track_id]
+            cx, cy = lost_obj.center
+            x1, y1, x2, y2 = lost_obj.bbox_xyxy
+            bbox_area = max(1.0, (x2 - x1) * (y2 - y1))
+            self._lost_track_positions.append(
+                _LostTrack(
+                    app_track_id=track_id,
+                    class_id=lost_obj.class_id,
+                    center=(cx, cy),
+                    bbox_area=bbox_area,
+                )
+            )
+            # Recycle the app track ID
+            alias_key = self._track_alias_keys.pop(track_id, None)
+            if alias_key is not None:
+                self._track_id_aliases.pop(alias_key, None)
+            self._recycled_ids.append(track_id)
             self._history.pop(track_id, None)
             self._last_objects.pop(track_id, None)
             self._missing_frames.pop(track_id, None)
