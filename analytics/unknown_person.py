@@ -8,6 +8,9 @@ from typing import Any
 from analytics.identity_status import is_confirmed_stranger
 from core.tracker import TrackedObject
 
+FULL_FRAME_ZONE_ID = "__global_stranger_watch__"
+FULL_FRAME_ZONE_NAME = "Full Frame"
+
 
 class UnknownPersonDetector:
     """Alert once when a candidate track is confirmed as an unknown person."""
@@ -49,6 +52,8 @@ class UnknownPersonDetector:
                     "identity_label": label,
                     "identity_kind": obj.identity_kind or "stranger",
                     "identity_score": obj.identity_score,
+                    "zone_id": FULL_FRAME_ZONE_ID,
+                    "zone_name": FULL_FRAME_ZONE_NAME,
                     "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
                     "details": f"Unknown person detected: {label} (Track #{obj.track_id})",
                 }

@@ -182,6 +182,14 @@ class PersonIdentityResolver:
                     )
 
         labeled: list[TrackedObject] = []
+        reserved_known_labels = {
+            cached[0]
+            for obj in objects
+            if obj.class_name == "person"
+            for cached in [self._track_cache.get((camera_id, obj.track_id))]
+            if cached is not None and cached[1] == KNOWN_PERSON_KIND and cached[0]
+        }
+        reserved_known_labels.update(label for label, _score in matches.values())
         for obj in objects:
             if obj.class_name in {"cat", "dog"}:
                 labeled.append(
@@ -217,6 +225,7 @@ class PersonIdentityResolver:
                     obj,
                     frame_bgr.shape,
                     frame_number,
+                    reserved_known_labels,
                 )
             ) is not None:
                 label = memory.label
@@ -246,6 +255,7 @@ class PersonIdentityResolver:
                 identity_score=score,
             )
             if kind == KNOWN_PERSON_KIND:
+                reserved_known_labels.add(label)
                 self._remember_known_identity(camera_id, labeled_obj, frame_number)
             labeled.append(labeled_obj)
         return labeled
@@ -309,13 +319,17 @@ class PersonIdentityResolver:
         obj: TrackedObject,
         frame_shape: tuple[int, ...],
         frame_number: int,
+        reserved_labels: set[str] | None = None,
     ) -> _KnownIdentityMemory | None:
         if self.known_memory_frames <= 0:
             return None
+        reserved_labels = reserved_labels or set()
         best_memory: _KnownIdentityMemory | None = None
         best_rank = -1.0
         for key, memory in self._known_identity_memory.items():
             if key[0] != camera_id:
+                continue
+            if memory.label in reserved_labels:
                 continue
             if frame_number - memory.frame_number > self.known_memory_frames:
                 continue

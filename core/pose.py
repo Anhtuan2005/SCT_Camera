@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from pathlib import Path
 from threading import RLock
@@ -13,6 +14,10 @@ from core.tracker import TrackedObject, _bbox_iou
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+_FALLBACK_CENTER_DISTANCE_RATIO = 0.45
+_FALLBACK_AREA_RATIO_MIN = 0.25
+_FALLBACK_AREA_RATIO_MAX = 4.0
 
 
 class PoseEstimator:
@@ -148,6 +153,7 @@ class PoseEstimator:
     ) -> int | None:
         best_index: int | None = None
         best_iou = self.match_iou
+        best_fallback: tuple[float, int] | None = None
         for index, pose_box in enumerate(pose_boxes):
             if index in used_pose_indexes:
                 continue
@@ -155,7 +161,15 @@ class PoseEstimator:
             if iou > best_iou:
                 best_index = index
                 best_iou = iou
-        return best_index
+                continue
+            fallback_score = _pose_fallback_score(obj.bbox_xyxy, pose_box)
+            if fallback_score is None:
+                continue
+            if best_fallback is None or fallback_score < best_fallback[0]:
+                best_fallback = (fallback_score, index)
+        if best_index is not None:
+            return best_index
+        return best_fallback[1] if best_fallback is not None else None
 
     @staticmethod
     def _clean_keypoints(raw_keypoints: list[list[float]]) -> list[tuple[float, float, float]]:
@@ -166,3 +180,40 @@ class PoseEstimator:
             elif len(point) >= 2:
                 cleaned.append((float(point[0]), float(point[1]), 1.0))
         return cleaned
+
+
+def _pose_fallback_score(
+    detection_box: tuple[float, float, float, float],
+    pose_box: tuple[float, float, float, float],
+) -> float | None:
+    det_area = _bbox_area(detection_box)
+    pose_area = _bbox_area(pose_box)
+    if det_area <= 0 or pose_area <= 0:
+        return None
+
+    area_ratio = pose_area / det_area
+    if area_ratio < _FALLBACK_AREA_RATIO_MIN or area_ratio > _FALLBACK_AREA_RATIO_MAX:
+        return None
+
+    det_center = _bbox_center(detection_box)
+    pose_center = _bbox_center(pose_box)
+    det_width = max(1.0, abs(detection_box[2] - detection_box[0]))
+    det_height = max(1.0, abs(detection_box[3] - detection_box[1]))
+    det_diag = math.hypot(det_width, det_height)
+    distance_ratio = math.hypot(
+        det_center[0] - pose_center[0],
+        det_center[1] - pose_center[1],
+    ) / det_diag
+    if distance_ratio > _FALLBACK_CENTER_DISTANCE_RATIO:
+        return None
+    return distance_ratio
+
+
+def _bbox_area(bbox: tuple[float, float, float, float]) -> float:
+    return max(0.0, bbox[2] - bbox[0]) * max(0.0, bbox[3] - bbox[1])
+
+
+def _bbox_center(
+    bbox: tuple[float, float, float, float],
+) -> tuple[float, float]:
+    return ((bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0)

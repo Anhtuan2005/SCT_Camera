@@ -117,6 +117,28 @@ Các trang chính:
 - `/camera/{cam_id}` Stream lớn, ROI editor, line editor, alert history.
 - `/settings` Telegram config, thresholds, thêm/xóa camera.
 
+## Dashboard authentication
+
+Dashboard, API và MJPEG stream được bảo vệ bằng session login. Mặc định trong
+`config/settings.yaml`:
+
+```yaml
+web:
+  auth:
+    enabled: true
+    username: admin
+    password: sct-camera
+```
+
+Có thể override khi chạy demo mà không sửa file:
+
+```powershell
+$env:SCT_CAMERA_USERNAME="admin"
+$env:SCT_CAMERA_PASSWORD="your-strong-password"
+$env:SCT_CAMERA_SESSION_SECRET="long-random-session-secret"
+python main.py
+```
+
 ## API
 
 - `GET /api/stream/{cam_id}` MJPEG stream.
@@ -148,7 +170,7 @@ YOLO model sẽ tự tải lần đầu từ Ultralytics hub. Nếu môi trườ
 ## Ghi chú vận hành
 
 - Telegram token được đọc từ `config/settings.yaml`, không hardcode trong Python.
-- Dashboard version 1 chưa có auth, chỉ nên chạy trong mạng nội bộ hoặc sau reverse proxy có bảo vệ.
+- Dashboard có session login; đổi password mặc định trước khi demo hoặc expose ra mạng.
 - RTSP URL có username/password được truyền trực tiếp cho OpenCV.
 - Ctrl+C sẽ kích hoạt FastAPI shutdown, dừng pipeline threads, release camera và dừng alert worker.
 - Tất cả logs ghi ra console và `logs/sct_camera.log`.

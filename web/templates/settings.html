@@ -169,7 +169,7 @@
             <h2>Pose</h2>
           </div>
           <div class="form-grid">
-            <label class="checkbox-row"><input name="pose_enabled" type="checkbox" checked disabled>Always enabled</label>
+            <label class="checkbox-row"><input name="pose_enabled" type="checkbox" {% if settings.pose.enabled | default(true) %}checked{% endif %}>Enabled</label>
             <label>
               Pose model
               <select name="pose_model">
@@ -212,6 +212,14 @@
             <label>
               Duplicate IoU threshold
               <input name="duplicate_iou_threshold" type="number" step="0.05" min="0.5" max="0.98" value="{{ settings.tracking.duplicate_iou_threshold | default(0.85) }}">
+            </label>
+            <label>
+              Containment dedupe threshold
+              <input name="duplicate_containment_threshold" type="number" step="0.05" min="0" max="0.98" value="{{ settings.tracking.duplicate_containment_threshold | default(0.7) }}">
+            </label>
+            <label class="checkbox-row">
+              <input name="lost_track_reid_enabled" type="checkbox" {% if settings.tracking.lost_track_reid_enabled | default(false) %}checked{% endif %}>
+              Reuse lost track IDs
             </label>
           </div>
         </section>

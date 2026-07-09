@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login · SCT Camera</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=security-console-6">
+</head>
+<body class="login-page" data-page="login">
+  <main class="login-shell">
+    <section class="login-card" aria-labelledby="loginTitle">
+      <div class="brand login-brand">
+        <span class="brand-mark">SEC</span>
+        <span>
+          <strong>SCT Camera</strong>
+          <small>Security Console</small>
+        </span>
+      </div>
+      <div>
+        <p class="eyebrow">Protected Console</p>
+        <h1 id="loginTitle">Đăng nhập</h1>
+      </div>
+      {% if error %}
+        <p class="auth-error" role="alert">{{ error }}</p>
+      {% endif %}
+      <form class="login-form" method="post" action="/login" autocomplete="on">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <label>
+          Username
+          <input name="username" type="text" autocomplete="username" autofocus required>
+        </label>
+        <label>
+          Password
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="button primary full" type="submit">Login</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

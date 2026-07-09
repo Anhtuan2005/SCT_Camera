@@ -1,9 +1,14 @@
 import unittest
+from dataclasses import replace
 from threading import Condition, Event, RLock, get_ident
 
 import numpy as np
 
-from core.pipeline import CameraPipeline, _AnalysisSnapshot
+from core.pipeline import (
+    CameraPipeline,
+    _AnalysisSnapshot,
+    _filter_false_person_detections,
+)
 from core.tracker import TrackedObject
 
 
@@ -265,6 +270,30 @@ class PipelineCadenceTests(unittest.TestCase):
             )
         )
 
+    def test_visual_alert_targets_expire_after_ttl(self) -> None:
+        pipeline = CameraPipeline.__new__(CameraPipeline)
+        pipeline._active_visual_alerts = []
+
+        visual_alerts = CameraPipeline._visual_alerts_for_alerts(
+            [
+                {
+                    "type": "intrusion",
+                    "track_id": 7,
+                    "zone_id": "gate",
+                }
+            ],
+            100.0,
+        )
+        active = pipeline._merge_visual_alerts_locked(visual_alerts, 100.0)
+
+        self.assertEqual(1, len(active))
+        self.assertEqual(7, active[0]["track_id"])
+        self.assertEqual("gate", active[0]["zone_id"])
+
+        expired = pipeline._merge_visual_alerts_locked([], 107.0)
+
+        self.assertEqual([], expired)
+
     def test_apply_frame_rotation_uses_camera_config(self) -> None:
         frame = np.asarray([[1, 2, 3], [4, 5, 6]], dtype=np.uint8)
 
@@ -297,30 +326,92 @@ class PipelineCadenceTests(unittest.TestCase):
             ).tolist(),
         )
 
-    def test_pose_needed_only_for_enabled_theft_asset_zones(self) -> None:
+    def test_pose_needed_follows_pose_enabled_setting(self) -> None:
         settings = {
             "pose": {"enabled": True},
-            "behavior": {"theft": {"enabled": True}},
-        }
-        asset_zone = {
-            "type": "asset_watch",
-            "polygon": [[0, 0], [1, 0], [1, 1]],
+            "behavior": {"theft": {"enabled": False}},
         }
 
-        self.assertFalse(CameraPipeline._pose_needed({"zones": []}, settings))
-        self.assertTrue(CameraPipeline._pose_needed({"zones": [asset_zone]}, settings))
+        self.assertTrue(CameraPipeline._pose_needed({"zones": []}, settings))
         self.assertFalse(
             CameraPipeline._pose_needed(
-                {"zones": [asset_zone]},
+                {"zones": []},
                 {"pose": {"enabled": False}, "behavior": {"theft": {"enabled": True}}},
             )
         )
-        self.assertFalse(
-            CameraPipeline._pose_needed(
-                {"zones": [asset_zone]},
-                {"pose": {"enabled": True}, "behavior": {"theft": {"enabled": False}}},
-            )
+
+    def test_pose_filter_hysteresis_keeps_confirmed_person_briefly(self) -> None:
+        confirmed = TrackedObject(
+            track_id=7,
+            bbox_xyxy=(1.0, 1.0, 6.0, 6.0),
+            class_id=0,
+            class_name="person",
+            confidence=0.9,
+            center_history=[],
+            pose_keypoints=[(1.0, 1.0, 0.9), (2.0, 2.0, 0.8), (3.0, 3.0, 0.7)],
         )
+        pose_fail_streak: dict[int, int] = {}
+        pose_confirmed_person: set[int] = set()
+
+        kept = _filter_false_person_detections(
+            [confirmed],
+            3,
+            0.25,
+            pose_fail_streak,
+            pose_confirmed_person,
+            2,
+        )
+        first_dropout = _filter_false_person_detections(
+            [replace(confirmed, pose_keypoints=None)],
+            3,
+            0.25,
+            pose_fail_streak,
+            pose_confirmed_person,
+            2,
+        )
+        second_dropout = _filter_false_person_detections(
+            [replace(confirmed, pose_keypoints=[])],
+            3,
+            0.25,
+            pose_fail_streak,
+            pose_confirmed_person,
+            2,
+        )
+        third_dropout = _filter_false_person_detections(
+            [replace(confirmed, pose_keypoints=None)],
+            3,
+            0.25,
+            pose_fail_streak,
+            pose_confirmed_person,
+            2,
+        )
+
+        self.assertEqual([7], [obj.track_id for obj in kept])
+        self.assertEqual([7], [obj.track_id for obj in first_dropout])
+        self.assertEqual([7], [obj.track_id for obj in second_dropout])
+        self.assertEqual([], third_dropout)
+
+    def test_pose_filter_still_drops_unconfirmed_person_without_keypoints(self) -> None:
+        unconfirmed = TrackedObject(
+            track_id=8,
+            bbox_xyxy=(1.0, 1.0, 6.0, 6.0),
+            class_id=0,
+            class_name="person",
+            confidence=0.9,
+            center_history=[],
+            pose_keypoints=None,
+        )
+
+        filtered = _filter_false_person_detections(
+            [unconfirmed],
+            3,
+            0.25,
+            {},
+            set(),
+            8,
+        )
+
+        self.assertEqual([], filtered)
 
 
 if __name__ == "__main__":

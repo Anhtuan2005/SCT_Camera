@@ -18,7 +18,7 @@ def tracked_object(track_id: int, class_name: str, class_id: int) -> TrackedObje
 
 
 class IntrusionDetectorTest(unittest.TestCase):
-    def test_alerts_once_per_person_occupancy_episode(self) -> None:
+    def test_intrusion_zones_do_not_alert_without_inbound_line_crossing(self) -> None:
         detector = IntrusionDetector(reset_frames=2)
         zone = Zone(
             id="room",
@@ -37,33 +37,22 @@ class IntrusionDetectorTest(unittest.TestCase):
                 tracked_object(2, "bicycle", 1),
             ],
             [zone],
+            [],
             frame_shape,
             now,
         )
-        self.assertEqual(["person"], [alert["class_name"] for alert in first_alerts])
+        self.assertEqual([], first_alerts)
 
         replacement_track_alerts = detector.analyze(
             "cam",
             "Camera",
             [tracked_object(3, "person", 0)],
             [zone],
+            [],
             frame_shape,
             now,
         )
         self.assertEqual([], replacement_track_alerts)
-
-        for _ in range(3):
-            detector.analyze("cam", "Camera", [], [zone], frame_shape, now)
-
-        reentry_alerts = detector.analyze(
-            "cam",
-            "Camera",
-            [tracked_object(4, "person", 0)],
-            [zone],
-            frame_shape,
-            now,
-        )
-        self.assertEqual(1, len(reentry_alerts))
 
 
 if __name__ == "__main__":

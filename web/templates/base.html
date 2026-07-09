@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}SCT Camera{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=security-console-5">
+  <link rel="stylesheet" href="/static/css/style.css?v=security-console-8">
 </head>
 <body data-page="{{ page_id | default('dashboard') }}">
   <div class="app-shell">
@@ -40,6 +40,11 @@
         </div>
         <div class="top-actions">
           {% block top_actions %}{% endblock %}
+          {% if request.state.authenticated %}
+          <form class="logout-form" method="post" action="/logout">
+            <button class="button small" type="submit">Logout</button>
+          </form>
+          {% endif %}
         </div>
       </header>
 
@@ -48,7 +53,7 @@
   </div>
 
   <div id="toastStack" class="toast-stack" aria-live="polite"></div>
-  <script src="/static/js/main.js?v=security-console-5"></script>
+  <script src="/static/js/main.js?v=security-console-9"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

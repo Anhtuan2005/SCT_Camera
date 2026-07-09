@@ -16,6 +16,9 @@
   }
 
   const toastStack = document.getElementById("toastStack");
+  const MAX_TOASTS = 4;
+  const TOAST_GROUP_WINDOW_MS = 4000;
+  const toastGroups = new Map();
   const seenAlerts = new Set();
   let firstAlertPoll = true;
   let editingCameraId = "";
@@ -33,13 +36,38 @@
     return response.json();
   }
 
-  function toast(title, message) {
+  function removeToast(node, groupKey = "") {
+    node.remove();
+    if (groupKey) toastGroups.delete(groupKey);
+  }
+
+  function toast(title, message, options = {}) {
     if (!toastStack) return;
+    const groupKey = options.groupKey || "";
+    const now = Date.now();
+    if (groupKey) {
+      const existing = toastGroups.get(groupKey);
+      if (existing && existing.node.isConnected && now - existing.lastAt <= TOAST_GROUP_WINDOW_MS) {
+        existing.count += 1;
+        existing.lastAt = now;
+        existing.node.querySelector("strong").textContent = `${title} x${existing.count}`;
+        existing.node.querySelector("span").textContent = message;
+        window.clearTimeout(existing.timeoutId);
+        existing.timeoutId = window.setTimeout(() => removeToast(existing.node, groupKey), 5200);
+        return;
+      }
+    }
     const node = document.createElement("div");
     node.className = "toast";
     node.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(message)}</span>`;
     toastStack.appendChild(node);
-    window.setTimeout(() => node.remove(), 5200);
+    while (toastStack.children.length > MAX_TOASTS) {
+      removeToast(toastStack.firstElementChild);
+    }
+    const timeoutId = window.setTimeout(() => removeToast(node, groupKey), 5200);
+    if (groupKey) {
+      toastGroups.set(groupKey, { node, count: 1, lastAt: now, timeoutId });
+    }
   }
 
   function escapeHtml(value) {
@@ -251,7 +279,11 @@
         seenAlerts.add(key);
         if (!firstAlertPoll && !alert.suppressed) {
           const target = alert.zone_name || alert.line_name || "-";
-          toast(`${alertTypeLabel(alert.type)} · ${alert.camera_name}`, `${target} · track #${alert.track_id}`);
+          toast(
+            `${alertTypeLabel(alert.type)} · ${alert.camera_name}`,
+            `${target} · track #${alert.track_id}`,
+            { groupKey: `${cameraId}|${alert.type}` }
+          );
         }
       }
     }
@@ -367,7 +399,7 @@
             half: true,
           },
           pose: {
-            enabled: true,
+            enabled: form.get("pose_enabled") === "on",
             model: form.get("pose_model") || "yolo11n-pose.pt",
             allow_download: true,
             confidence: 0.2,
@@ -402,8 +434,10 @@
             processing_max_height: Number(form.get("processing_max_height") || 720),
           },
           tracking: {
-            track_grace_frames: Number(form.get("track_grace_frames") || 15),
-            duplicate_iou_threshold: Number(form.get("duplicate_iou_threshold") || 0.85),
+            track_grace_frames: Number(form.get("track_grace_frames") || 50),
+            duplicate_iou_threshold: Number(form.get("duplicate_iou_threshold") || 0.55),
+            duplicate_containment_threshold: Number(form.get("duplicate_containment_threshold") || 0.55),
+            lost_track_reid_enabled: form.get("lost_track_reid_enabled") === "on",
           },
           siren: {
             enabled: form.get("siren_enabled") === "on",
@@ -577,10 +611,98 @@
     }
   }
 
+  function setupStreamFullscreen() {
+    const streams = document.querySelectorAll(".detail-stream, #editorStream, .stream-img");
+    streams.forEach((stream) => {
+      if (!stream.parentElement) return;
+
+      const wrapper = stream.parentElement;
+      let notifyingOverlayResize = false;
+      wrapper.classList.add("stream-fullscreen-wrap");
+      if (wrapper.querySelector(".fullscreen-toggle")) return;
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "fullscreen-toggle";
+      button.setAttribute("aria-label", "Toggle fullscreen");
+      button.textContent = "\u26f6";
+      wrapper.appendChild(button);
+
+      function streamDimensions() {
+        const rect = stream.getBoundingClientRect();
+        const width = stream.naturalWidth || stream.videoWidth || rect.width || 16;
+        const height = stream.naturalHeight || stream.videoHeight || rect.height || 9;
+        return { width, height };
+      }
+
+      function notifyOverlayResize() {
+        if (notifyingOverlayResize) return;
+        notifyingOverlayResize = true;
+        const raf = window.requestAnimationFrame || ((callback) => window.setTimeout(callback, 0));
+        raf(() => {
+          window.dispatchEvent(new Event("resize"));
+          raf(() => {
+            notifyingOverlayResize = false;
+          });
+        });
+      }
+
+      function fitFullscreenStream(updateOverlays = false) {
+        if (document.fullscreenElement !== wrapper) {
+          wrapper.style.removeProperty("--fullscreen-stream-width");
+          wrapper.style.removeProperty("--fullscreen-stream-height");
+          return;
+        }
+        const { width, height } = streamDimensions();
+        const viewportWidth = window.innerWidth || wrapper.clientWidth || width;
+        const viewportHeight = window.innerHeight || wrapper.clientHeight || height;
+        const scale = Math.min(viewportWidth / width, viewportHeight / height);
+        wrapper.style.setProperty("--fullscreen-stream-width", `${Math.max(1, Math.round(width * scale))}px`);
+        wrapper.style.setProperty("--fullscreen-stream-height", `${Math.max(1, Math.round(height * scale))}px`);
+        if (updateOverlays) notifyOverlayResize();
+      }
+
+      function toggleFullscreen() {
+        if (document.fullscreenElement === wrapper) {
+          document.exitFullscreen().catch((err) => toast("Fullscreen error", err.message));
+          return;
+        }
+        if (!wrapper.requestFullscreen) {
+          toast("Fullscreen unavailable", "Browser does not support fullscreen");
+          return;
+        }
+        wrapper
+          .requestFullscreen()
+          .then(() => fitFullscreenStream(true))
+          .catch((err) => toast("Fullscreen error", err.message));
+      }
+
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleFullscreen();
+      });
+      stream.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        toggleFullscreen();
+      });
+      stream.addEventListener("load", () => fitFullscreenStream(true));
+      window.addEventListener("resize", () => {
+        if (!notifyingOverlayResize) fitFullscreenStream(true);
+      });
+      document.addEventListener("fullscreenchange", () => {
+        const isFullscreen = document.fullscreenElement === wrapper;
+        button.classList.toggle("is-fullscreen", isFullscreen);
+        fitFullscreenStream(isFullscreen);
+      });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     setupEditorTabs();
     setupSettingsForms();
     setupCameraToggles();
+    setupStreamFullscreen();
     refreshCameras().catch((error) => toast("API error", error.message));
     window.setInterval(() => refreshCameras().catch(() => {}), 2500);
   });

@@ -7,9 +7,17 @@ from datetime import datetime
 from math import hypot
 from typing import Any
 
+from analytics.dwell_policy import (
+    DwellSession,
+    current_dwell_duration,
+    should_purge_missing_session,
+    update_dwell_session,
+)
 from analytics.identity_status import is_confirmed_stranger
 from analytics.zone import Zone
 from core.tracker import TrackedObject
+
+_DwellKey = tuple[str, str, int]
 
 
 class SuspiciousStrangerDetector:
@@ -19,18 +27,24 @@ class SuspiciousStrangerDetector:
         self,
         default_threshold_seconds: float = 180.0,
         settings: dict[str, Any] | None = None,
+        state_grace_seconds: float = 3.0,
     ) -> None:
         settings = settings or {}
         self.default_threshold_seconds = default_threshold_seconds
+        self.state_grace_seconds = max(
+            0.0,
+            float(settings.get("state_grace_seconds", state_grace_seconds)),
+        )
         self.min_history_points = int(settings.get("min_history_points", 5))
         self.stationary_max_displacement_ratio = float(
             settings.get("stationary_max_displacement_ratio", 0.04)
         )
         self.pacing_path_min_ratio = float(settings.get("pacing_path_min_ratio", 0.18))
         self.pacing_net_max_ratio = float(settings.get("pacing_net_max_ratio", 0.08))
-        self._entry_times: dict[tuple[str, str, int], float] = {}
-        self._alerted: set[tuple[str, str, int]] = set()
-        self._active_states: dict[tuple[str, str, int], dict[str, Any]] = {}
+        self._sessions: dict[_DwellKey, DwellSession] = {}
+        self._alerted_tier_index: dict[_DwellKey, int] = {}
+        self._active_states: dict[_DwellKey, dict[str, Any]] = {}
+        self._session_gaps: dict[_DwellKey, float] = {}
 
     def analyze(
         self,
@@ -50,19 +64,18 @@ class SuspiciousStrangerDetector:
         now = time.monotonic()
         alerts: list[dict[str, Any]] = []
         for zone in watch_zones:
-            threshold = zone.threshold_seconds or self.default_threshold_seconds
-            inside_now: set[tuple[str, str, int]] = set()
+            inside_now: set[_DwellKey] = set()
 
             for obj in objects:
-                if not self._is_stranger(obj):
+                if not self._is_stranger(obj) or self._is_excluded(zone, obj):
                     continue
                 key = (camera_id, zone.id, obj.track_id)
                 if not zone.contains_point(obj.center[0], obj.center[1], frame_shape):
                     continue
 
                 inside_now.add(key)
-                self._entry_times.setdefault(key, now)
-                duration = now - self._entry_times[key]
+                threshold = self._threshold_for(zone, obj, timestamp)
+                duration = self._duration_for(key, zone, now)
                 reason = self._suspicious_reason(obj, frame_shape)
                 self._active_states[key] = {
                     "camera_id": camera_id,
@@ -75,43 +88,56 @@ class SuspiciousStrangerDetector:
                     "suspicious_reason": reason,
                     "alert_ready": duration >= threshold and reason is not None,
                 }
-                if duration >= threshold and reason and key not in self._alerted:
-                    self._alerted.add(key)
-                    label = obj.identity_label or "Stranger"
-                    alerts.append(
-                        {
-                            "type": "suspicious_stranger",
-                            "camera_id": camera_id,
-                            "camera_name": camera_name,
-                            "track_id": obj.track_id,
-                            "class_id": obj.class_id,
-                            "class_name": obj.class_name,
-                            "identity_label": label,
-                            "identity_kind": obj.identity_kind or "stranger",
-                            "identity_score": obj.identity_score,
-                            "zone_id": zone.id,
-                            "zone_name": zone.name,
-                            "duration": round(duration, 1),
-                            "threshold_seconds": threshold,
-                            "suspicious_reason": reason,
-                            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                            "siren": True,
-                            "details": (
-                                f"{label} stayed for {duration:.0f}s "
-                                f"(threshold: {threshold:.0f}s), reason: {reason}"
-                            ),
-                        }
-                    )
+                if reason is None:
+                    continue
 
-            stale_keys = [
-                key
-                for key in self._entry_times
-                if key[0] == camera_id and key[1] == zone.id and key not in inside_now
-            ]
-            for key in stale_keys:
-                self._entry_times.pop(key, None)
-                self._active_states.pop(key, None)
-                self._alerted.discard(key)
+                tiers = (
+                    zone.dwell_policy.effective_tiers(obj.identity_kind, timestamp)
+                    if zone.dwell_policy is not None
+                    else []
+                )
+                last_fired = self._alerted_tier_index.get(key, -1)
+                if tiers:
+                    for index, tier in enumerate(tiers):
+                        if index <= last_fired or duration < tier.after_seconds:
+                            continue
+                        self._alerted_tier_index[key] = index
+                        alerts.append(
+                            self._alert(
+                                camera_id,
+                                camera_name,
+                                zone,
+                                obj,
+                                duration,
+                                tier.after_seconds,
+                                reason,
+                                timestamp,
+                                alert_type=tier.alert_type,
+                                siren=tier.siren,
+                                channels=tier.channels,
+                            )
+                        )
+                    continue
+
+                if duration < threshold or last_fired >= 0:
+                    continue
+                self._alerted_tier_index[key] = 0
+                alerts.append(
+                    self._alert(
+                        camera_id,
+                        camera_name,
+                        zone,
+                        obj,
+                        duration,
+                        threshold,
+                        reason,
+                        timestamp,
+                        alert_type="suspicious_stranger",
+                        siren=True,
+                    )
+                )
+
+            self._clear_missing(camera_id, zone.id, inside_now, now)
 
         return alerts
 
@@ -122,12 +148,16 @@ class SuspiciousStrangerDetector:
         for key, state in list(self._active_states.items()):
             if key[0] != camera_id:
                 continue
-            entry_time = self._entry_times.get(key)
-            if entry_time is None:
+            session = self._sessions.get(key)
+            if session is None:
                 self._active_states.pop(key, None)
                 continue
-            duration = now - entry_time
-            threshold = float(state.get("threshold_seconds", self.default_threshold_seconds))
+            if not session.active and now - session.last_seen > self.state_grace_seconds:
+                continue
+            duration = current_dwell_duration(session, now, self.state_grace_seconds)
+            threshold = float(
+                state.get("threshold_seconds", self.default_threshold_seconds)
+            )
             current = {
                 **state,
                 "duration": duration,
@@ -143,12 +173,71 @@ class SuspiciousStrangerDetector:
                 states[track_id] = current
         return states
 
+    def _duration_for(self, key: _DwellKey, zone: Zone, now: float) -> float:
+        session_gap = self._session_gap_for(zone)
+        self._session_gaps[key] = session_gap
+        return update_dwell_session(
+            self._sessions,
+            key,
+            now,
+            self.state_grace_seconds,
+            session_gap,
+        )
+
+    def _clear_missing(
+        self,
+        camera_id: str,
+        zone_id: str,
+        inside_now: set[_DwellKey],
+        now: float,
+    ) -> None:
+        for key, session in list(self._sessions.items()):
+            if key[:2] != (camera_id, zone_id) or key in inside_now:
+                continue
+            gap = max(0.0, now - session.last_seen)
+            should_purge = should_purge_missing_session(
+                session,
+                now,
+                self.state_grace_seconds,
+                self._session_gaps.get(key, 0.0),
+            )
+            if gap > self.state_grace_seconds:
+                self._active_states.pop(key, None)
+            if should_purge:
+                self._purge_key(key)
+
     def _clear_camera(self, camera_id: str) -> None:
-        stale_keys = [key for key in self._active_states if key[0] == camera_id]
-        for key in stale_keys:
-            self._active_states.pop(key, None)
-            self._entry_times.pop(key, None)
-            self._alerted.discard(key)
+        for key in [key for key in self._sessions if key[0] == camera_id]:
+            self._purge_key(key)
+
+    def _purge_key(self, key: _DwellKey) -> None:
+        self._sessions.pop(key, None)
+        self._alerted_tier_index.pop(key, None)
+        self._active_states.pop(key, None)
+        self._session_gaps.pop(key, None)
+
+    def _threshold_for(
+        self,
+        zone: Zone,
+        obj: TrackedObject,
+        timestamp: datetime,
+    ) -> float:
+        if zone.dwell_policy is not None:
+            return zone.dwell_policy.effective_threshold(obj.identity_kind, timestamp)
+        return zone.threshold_seconds or self.default_threshold_seconds
+
+    @staticmethod
+    def _session_gap_for(zone: Zone) -> float:
+        if zone.dwell_policy is None:
+            return 0.0
+        return zone.dwell_policy.session_gap_seconds
+
+    @staticmethod
+    def _is_excluded(zone: Zone, obj: TrackedObject) -> bool:
+        return (
+            zone.dwell_policy is not None
+            and zone.dwell_policy.is_excluded(obj.identity_kind)
+        )
 
     @staticmethod
     def _is_stranger(obj: TrackedObject) -> bool:
@@ -180,3 +269,45 @@ class SuspiciousStrangerDetector:
         ):
             return "pacing_near_area"
         return None
+
+    @staticmethod
+    def _alert(
+        camera_id: str,
+        camera_name: str,
+        zone: Zone,
+        obj: TrackedObject,
+        duration: float,
+        threshold: float,
+        reason: str,
+        timestamp: datetime,
+        alert_type: str,
+        siren: bool = False,
+        channels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        label = obj.identity_label or "Stranger"
+        alert = {
+            "type": alert_type,
+            "camera_id": camera_id,
+            "camera_name": camera_name,
+            "track_id": obj.track_id,
+            "class_id": obj.class_id,
+            "class_name": obj.class_name,
+            "identity_label": label,
+            "identity_kind": obj.identity_kind or "stranger",
+            "identity_score": obj.identity_score,
+            "zone_id": zone.id,
+            "zone_name": zone.name,
+            "duration": round(duration, 1),
+            "threshold_seconds": threshold,
+            "suspicious_reason": reason,
+            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "details": (
+                f"{label} stayed for {duration:.0f}s "
+                f"(threshold: {threshold:.0f}s), reason: {reason}"
+            ),
+        }
+        if siren:
+            alert["siren"] = True
+        if channels is not None:
+            alert["notification_channels"] = channels
+        return alert

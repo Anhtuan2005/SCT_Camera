@@ -6,7 +6,7 @@ import copy
 import os
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -36,6 +36,174 @@ LOW_FPS_THRESHOLD = 5.0
 LOW_FPS_WARNING_SECONDS = 10.0
 FPS_SPIKE_THRESHOLD = 500.0
 MAX_RECONNECT_BACKOFF_SECONDS = 60.0
+VISUAL_ALERT_SECONDS = 6.0
+MAX_ACTIVE_VISUAL_ALERTS = 32
+POSE_FILTER_FAIL_GRACE_FRAMES = 8
+
+
+def _filter_false_person_detections(
+    objects: list[TrackedObject],
+    min_valid_keypoints: int = 3,
+    min_keypoint_confidence: float = 0.25,
+    pose_fail_streak: dict[int, int] | None = None,
+    pose_confirmed_person: set[int] | None = None,
+    fail_grace_frames: int = 0,
+) -> list[TrackedObject]:
+    """Remove 'person' detections that have too few valid pose keypoints.
+
+    Real people always produce several confident keypoints (shoulders, hips,
+    knees, etc.).  False positives — motorcycles, chairs, picture frames —
+    almost never produce valid pose output.
+    """
+    use_hysteresis = pose_fail_streak is not None and pose_confirmed_person is not None
+    if use_hysteresis and pose_fail_streak is not None and pose_confirmed_person is not None:
+        return _filter_false_person_detections_with_hysteresis(
+            objects,
+            min_valid_keypoints,
+            min_keypoint_confidence,
+            pose_fail_streak,
+            pose_confirmed_person,
+            fail_grace_frames,
+        )
+    filtered: list[TrackedObject] = []
+    for obj in objects:
+        if obj.class_name != "person":
+            filtered.append(obj)
+            continue
+        # No keypoints at all means pose model didn't find a matching person
+        # — almost certainly a false positive.
+        kps = obj.pose_keypoints
+        keypoint_confidences = (
+            [] if not kps else [round(float(conf), 3) for _x, _y, conf in kps]
+        )
+        if kps is None or len(kps) == 0:
+            logger.debug(
+                (
+                    "Dropping false person detection track=%d valid_keypoints=%d "
+                    "keypoint_confidences=%s"
+                ),
+                obj.track_id,
+                0,
+                keypoint_confidences,
+            )
+            continue
+        valid_count = sum(
+            1 for x, y, conf in kps if conf >= min_keypoint_confidence
+        )
+        if valid_count < min_valid_keypoints:
+            logger.debug(
+                "Dropping false person detection track=%d "
+                "valid_keypoints=%d min_valid_keypoints=%d "
+                "keypoint_confidences=%s",
+                obj.track_id,
+                valid_count,
+                min_valid_keypoints,
+                keypoint_confidences,
+            )
+            continue
+        logger.debug(
+            (
+                "Keeping person detection track=%d valid_keypoints=%d "
+                "min_valid_keypoints=%d keypoint_confidences=%s"
+            ),
+            obj.track_id,
+            valid_count,
+            min_valid_keypoints,
+            keypoint_confidences,
+        )
+        filtered.append(obj)
+    return filtered
+
+
+def _filter_false_person_detections_with_hysteresis(
+    objects: list[TrackedObject],
+    min_valid_keypoints: int,
+    min_keypoint_confidence: float,
+    pose_fail_streak: dict[int, int],
+    pose_confirmed_person: set[int],
+    fail_grace_frames: int,
+) -> list[TrackedObject]:
+    active_person_ids = {obj.track_id for obj in objects if obj.class_name == "person"}
+    filtered: list[TrackedObject] = []
+    for obj in objects:
+        if obj.class_name != "person":
+            filtered.append(obj)
+            continue
+
+        kps = obj.pose_keypoints
+        keypoint_confidences = (
+            [] if not kps else [round(float(conf), 3) for _x, _y, conf in kps]
+        )
+        valid_count = (
+            0
+            if not kps
+            else sum(
+                1
+                for _x, _y, conf in kps
+                if conf >= min_keypoint_confidence
+            )
+        )
+        if valid_count >= min_valid_keypoints:
+            pose_confirmed_person.add(obj.track_id)
+            pose_fail_streak.pop(obj.track_id, None)
+            logger.debug(
+                (
+                    "Keeping person detection track=%d valid_keypoints=%d "
+                    "min_valid_keypoints=%d keypoint_confidences=%s"
+                ),
+                obj.track_id,
+                valid_count,
+                min_valid_keypoints,
+                keypoint_confidences,
+            )
+            filtered.append(obj)
+            continue
+
+        if obj.track_id in pose_confirmed_person:
+            fail_count = pose_fail_streak.get(obj.track_id, 0) + 1
+            pose_fail_streak[obj.track_id] = fail_count
+            if fail_count <= max(0, int(fail_grace_frames)):
+                logger.debug(
+                    (
+                        "Keeping confirmed person track=%d despite weak pose "
+                        "valid_keypoints=%d fail_streak=%d grace_frames=%d "
+                        "keypoint_confidences=%s"
+                    ),
+                    obj.track_id,
+                    valid_count,
+                    fail_count,
+                    fail_grace_frames,
+                    keypoint_confidences,
+                )
+                filtered.append(obj)
+                continue
+
+        if not kps:
+            logger.debug(
+                (
+                    "Dropping false person detection track=%d valid_keypoints=%d "
+                    "keypoint_confidences=%s"
+                ),
+                obj.track_id,
+                valid_count,
+                keypoint_confidences,
+            )
+        else:
+            logger.debug(
+                "Dropping false person detection track=%d "
+                "valid_keypoints=%d min_valid_keypoints=%d "
+                "keypoint_confidences=%s",
+                obj.track_id,
+                valid_count,
+                min_valid_keypoints,
+                keypoint_confidences,
+            )
+
+    for track_id in list(pose_fail_streak):
+        if track_id not in active_person_ids:
+            pose_fail_streak.pop(track_id, None)
+    pose_confirmed_person.intersection_update(active_person_ids)
+    return filtered
 
 
 @dataclass(frozen=True)
@@ -48,6 +216,7 @@ class _AnalysisSnapshot:
     result_id: int
     frame_capture_time: float = 0.0
     frame_index: int = 0
+    visual_alerts: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -109,6 +278,9 @@ class CameraPipeline:
         self._latest_analysis_result_id = 0
         self._latest_analysis_capture_time = 0.0
         self._latest_analysis_frame_index = 0
+        self._active_visual_alerts: list[dict[str, Any]] = []
+        self._pose_fail_streak: dict[int, int] = {}
+        self._pose_confirmed_person: set[int] = set()
         self._published_analysis_result_id = 0
         self._pending_alert_count = 0
         self._previous_track_ids: set[int] = set()
@@ -363,6 +535,9 @@ class CameraPipeline:
             self._latest_analysis_result_id = 0
             self._latest_analysis_capture_time = 0.0
             self._latest_analysis_frame_index = 0
+            self._active_visual_alerts = []
+            self._pose_fail_streak = {}
+            self._pose_confirmed_person = set()
             self._published_analysis_result_id = 0
             self._pending_alert_count = 0
             self._previous_track_ids = set()
@@ -507,6 +682,7 @@ class CameraPipeline:
 
     def _analysis_snapshot(self) -> _AnalysisSnapshot:
         with self._analysis_state_lock:
+            self._prune_visual_alerts_locked(time.monotonic())
             pending_alert_count = self._pending_alert_count
             self._pending_alert_count = 0
             return _AnalysisSnapshot(
@@ -518,6 +694,7 @@ class CameraPipeline:
                 result_id=self._latest_analysis_result_id,
                 frame_capture_time=self._latest_analysis_capture_time,
                 frame_index=self._latest_analysis_frame_index,
+                visual_alerts=copy.deepcopy(self._active_visual_alerts),
             )
 
     def _should_publish_snapshot(self, snapshot: _AnalysisSnapshot) -> bool:
@@ -549,6 +726,7 @@ class CameraPipeline:
             config,
             snapshot.counters,
             snapshot.person_timer_states,
+            snapshot.visual_alerts,
         )
         return _DisplayFrame(
             frame=annotated,
@@ -584,6 +762,32 @@ class CameraPipeline:
                 return
             if self._pose_needed(config, settings):
                 objects = self.pose_estimator.attach(frame, objects)
+                # Filter out false-positive "person" detections.  Real people
+                # always produce multiple confident keypoints (shoulders, hips).
+                # Objects like motorcycles, chairs, and pictures produce zero.
+                min_valid_kps = int(
+                    settings.get("pose", {}).get("min_valid_keypoints", 3)
+                )
+                kp_conf = float(
+                    settings.get("pose_classification", {}).get(
+                        "min_keypoint_confidence", 0.25
+                    )
+                )
+                pose_fail_grace_frames = int(
+                    settings.get("pose", {}).get(
+                        "false_person_filter_grace_frames",
+                        POSE_FILTER_FAIL_GRACE_FRAMES,
+                    )
+                )
+                objects = _filter_false_person_detections(
+                    objects,
+                    min_valid_kps,
+                    kp_conf,
+                    self._pose_fail_streak,
+                    self._pose_confirmed_person,
+                    pose_fail_grace_frames,
+                )
+                objects = self.tracker.suppress_ghost_animal_over_person(objects)
             t2 = time.monotonic()
             objects = behavior_engine.label_objects(objects, config, frame)
             t3 = time.monotonic()
@@ -596,6 +800,7 @@ class CameraPipeline:
             total_ms = (t4 - t0) * 1000
             counters = behavior_engine.get_counters(camera_id)
             person_timer_states = behavior_engine.get_person_timer_states(camera_id)
+            visual_alerts = self._visual_alerts_for_alerts(alerts, t4)
             logger.debug(
                 (
                     "Analysis %s: track_ms=%.0f pose_ms=%.0f identity_ms=%.0f "
@@ -614,6 +819,7 @@ class CameraPipeline:
             with self._analysis_state_lock:
                 if generation != self._analysis_generation or token != self._analysis_token:
                     return
+                active_visual_alerts = self._merge_visual_alerts_locked(visual_alerts, t4)
 
             annotated = draw_annotations(
                 frame,
@@ -621,6 +827,7 @@ class CameraPipeline:
                 config,
                 counters,
                 person_timer_states,
+                active_visual_alerts,
             )
             for alert in alerts:
                 alert["notification_channels"] = list(config.get("notification_channels", ["telegram"]))
@@ -654,6 +861,46 @@ class CameraPipeline:
             with self._analysis_state_lock:
                 if self._analysis_token == token:
                     self._analysis_inflight = False
+
+    @staticmethod
+    def _visual_alerts_for_alerts(
+        alerts: list[dict[str, Any]],
+        now: float,
+    ) -> list[dict[str, Any]]:
+        visual_alerts: list[dict[str, Any]] = []
+        for alert in alerts:
+            item: dict[str, Any] = {
+                "type": str(alert.get("type", "unknown")),
+                "started_at": now,
+                "expires_at": now + VISUAL_ALERT_SECONDS,
+            }
+            for key in ("track_id", "zone_id", "line_id"):
+                value = alert.get(key)
+                if value is not None:
+                    item[key] = value
+            if any(key in item for key in ("track_id", "zone_id", "line_id")):
+                visual_alerts.append(item)
+        return visual_alerts
+
+    def _merge_visual_alerts_locked(
+        self,
+        alerts: list[dict[str, Any]],
+        now: float,
+    ) -> list[dict[str, Any]]:
+        self._prune_visual_alerts_locked(now)
+        self._active_visual_alerts.extend(alerts)
+        if len(self._active_visual_alerts) > MAX_ACTIVE_VISUAL_ALERTS:
+            self._active_visual_alerts = self._active_visual_alerts[-MAX_ACTIVE_VISUAL_ALERTS:]
+        return copy.deepcopy(self._active_visual_alerts)
+
+    def _prune_visual_alerts_locked(self, now: float) -> None:
+        if not hasattr(self, "_active_visual_alerts"):
+            self._active_visual_alerts = []
+        self._active_visual_alerts = [
+            alert
+            for alert in self._active_visual_alerts
+            if float(alert.get("expires_at", 0.0)) > now
+        ]
 
     def _get_config(self) -> dict[str, Any]:
         with self._config_lock:
@@ -746,17 +993,7 @@ class CameraPipeline:
 
     @staticmethod
     def _pose_needed(config: dict[str, Any], settings: dict[str, Any]) -> bool:
-        if not bool(settings.get("pose", {}).get("enabled", True)):
-            return False
-        theft = settings.get("behavior", {}).get("theft", {})
-        if not bool(theft.get("enabled", True)):
-            return False
-        return any(
-            str(zone.get("type", zone.get("zone_type", ""))) in {"all", "asset_watch"}
-            and len(zone.get("polygon", [])) >= 3
-            for zone in config.get("zones", [])
-            if isinstance(zone, dict)
-        )
+        return bool(settings.get("pose", {}).get("enabled", True))
 
     @staticmethod
     def _frame_interval(capture: cv2.VideoCapture) -> float:

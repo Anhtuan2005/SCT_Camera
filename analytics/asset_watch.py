@@ -11,6 +11,9 @@ from typing import Any
 from analytics.identity_status import is_confirmed_stranger
 from analytics.zone import Zone
 from core.tracker import TrackedObject
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -26,6 +29,7 @@ class _AssetState:
     person_track_id: int | None = None
     person_label: str = ""
     outside_since: float | None = None
+    inside_streak_start: float | None = None
     alerted: bool = False
 
 
@@ -49,9 +53,17 @@ class AssetWatchDetector:
         self.person_window_seconds = float(settings.get("person_window_seconds", 12))
         self.min_presence_seconds = float(settings.get("min_presence_seconds", 2))
         self.interaction_distance_ratio = float(settings.get("interaction_distance_ratio", 0.22))
+        self.reappear_confirm_seconds = max(
+            0.0,
+            float(settings.get("reappear_confirm_seconds", 1.0)),
+        )
+        self.alert_repeat_seconds = max(
+            0.0,
+            float(settings.get("alert_repeat_seconds", settings.get("repeat_window_seconds", 300))),
+        )
         self.cleanup_seconds = float(settings.get("cleanup_seconds", 90))
         self._assets: dict[tuple[str, str, int], _AssetState] = {}
-        self._alerted_assets: set[tuple[str, str, str]] = set()
+        self._alerted_assets: dict[tuple[str, str, str, int], float] = {}
 
     def analyze(
         self,
@@ -145,19 +157,26 @@ class AssetWatchDetector:
                     last_center=asset.center,
                     last_bbox=asset.bbox_xyxy,
                     confidence=asset.confidence,
+                    inside_streak_start=now,
                 )
                 self._assets[key] = state
             else:
                 state.class_name = asset.class_name
-                state.last_seen_inside = now
-                state.last_center = asset.center
-                state.last_bbox = asset.bbox_xyxy
                 state.confidence = asset.confidence
-                state.outside_since = None
+                if state.inside_streak_start is None:
+                    state.inside_streak_start = now
+                if now - state.inside_streak_start >= self.reappear_confirm_seconds:
+                    state.last_seen_inside = now
+                    state.last_center = asset.center
+                    state.last_bbox = asset.bbox_xyxy
+                    state.outside_since = None
 
             person = self._nearest_interacting_person(asset, people_in_zone, frame_shape)
             if person is not None:
                 self._mark_person_near(state, person, now)
+        for key, state in self._assets.items():
+            if key[:2] == (camera_id, zone.id) and key[2] not in inside_asset_ids:
+                state.inside_streak_start = None
         return inside_asset_ids
 
     def _update_recent_people(
@@ -192,16 +211,31 @@ class AssetWatchDetector:
     ) -> list[dict[str, Any]]:
         alerts: list[dict[str, Any]] = []
         for key, state in list(self._assets.items()):
-            if key[:2] != (camera_id, zone.id) or key[2] in inside_asset_ids:
+            if key[:2] != (camera_id, zone.id):
+                self._log_gate("moved_out_wrong_zone", now, state, zone_id=zone.id)
+                continue
+            if key[2] in inside_asset_ids:
+                self._log_gate("moved_out_asset_inside", now, state, zone_id=zone.id)
                 continue
             asset = objects_by_track.get(state.track_id)
             if asset is None:
+                self._log_gate("moved_out_asset_not_tracked", now, state, zone_id=zone.id)
                 continue
             if zone.contains_point(asset.center[0], asset.center[1], frame_shape):
+                self._log_gate("moved_out_asset_still_in_zone", now, state, zone_id=zone.id)
                 continue
             if state.outside_since is None:
                 state.outside_since = now
-            if now - state.outside_since < missing_seconds:
+            outside_seconds = now - state.outside_since
+            if outside_seconds < missing_seconds:
+                self._log_gate(
+                    "moved_out_waiting_threshold",
+                    now,
+                    state,
+                    zone_id=zone.id,
+                    elapsed_seconds=round(outside_seconds, 3),
+                    threshold_seconds=missing_seconds,
+                )
                 continue
             alert = self._alert_if_ready(
                 camera_id,
@@ -231,11 +265,25 @@ class AssetWatchDetector:
     ) -> list[dict[str, Any]]:
         alerts: list[dict[str, Any]] = []
         for key, state in list(self._assets.items()):
-            if key[:2] != (camera_id, zone.id) or state.track_id in inside_asset_ids:
+            if key[:2] != (camera_id, zone.id):
+                self._log_gate("missing_wrong_zone", now, state, zone_id=zone.id)
                 continue
-            if now - state.last_seen_inside < missing_seconds:
+            if state.track_id in inside_asset_ids:
+                self._log_gate("missing_asset_inside", now, state, zone_id=zone.id)
                 continue
-            if self._same_asset_still_present(state, asset_objects, zone, frame_shape):
+            missing_elapsed = now - state.last_seen_inside
+            if missing_elapsed < missing_seconds:
+                self._log_gate(
+                    "missing_waiting_threshold",
+                    now,
+                    state,
+                    zone_id=zone.id,
+                    elapsed_seconds=round(missing_elapsed, 3),
+                    threshold_seconds=missing_seconds,
+                )
+                continue
+            if self._same_asset_still_present(state, asset_objects, zone, frame_shape, now):
+                self._log_gate("missing_same_asset_still_present", now, state, zone_id=zone.id)
                 continue
             alert = self._alert_if_ready(
                 camera_id,
@@ -263,17 +311,44 @@ class AssetWatchDetector:
         message: str,
     ) -> dict[str, Any] | None:
         if state.alerted:
+            self._log_gate("alert_already_sent", now, state, zone_id=zone.id)
             return None
-        asset_signature = (camera_id, zone.id, state.class_name)
-        if asset_signature in self._alerted_assets:
+        self._cleanup_alerted_assets(now)
+        if self._recent_asset_alert_exists(
+            camera_id,
+            zone.id,
+            state.class_name,
+            state.track_id,
+            now,
+        ):
+            self._log_gate("alert_recent_duplicate", now, state, zone_id=zone.id)
             return None
-        if now - state.first_seen < self.min_presence_seconds:
+        presence_seconds = now - state.first_seen
+        if presence_seconds < self.min_presence_seconds:
+            self._log_gate(
+                "alert_presence_too_short",
+                now,
+                state,
+                zone_id=zone.id,
+                elapsed_seconds=round(presence_seconds, 3),
+                threshold_seconds=self.min_presence_seconds,
+            )
             return None
-        if now - state.last_person_near > self.person_window_seconds:
+        person_elapsed = now - state.last_person_near
+        if person_elapsed > self.person_window_seconds:
+            self._log_gate(
+                "alert_person_window_expired",
+                now,
+                state,
+                zone_id=zone.id,
+                elapsed_seconds=round(person_elapsed, 3),
+                threshold_seconds=self.person_window_seconds,
+            )
             return None
 
         state.alerted = True
-        self._alerted_assets.add(asset_signature)
+        asset_signature = (camera_id, zone.id, state.class_name, state.track_id)
+        self._alerted_assets[asset_signature] = now
         actor = state.person_label or "unknown person"
         return {
             "type": alert_type,
@@ -296,15 +371,73 @@ class AssetWatchDetector:
         asset_objects: list[TrackedObject],
         zone: Zone,
         frame_shape: tuple[int, int, int],
+        now: float,
     ) -> bool:
         max_distance = self._frame_diagonal(frame_shape) * 0.12
         for asset in asset_objects:
             if asset.class_name != state.class_name:
+                self._log_gate(
+                    "same_asset_class_mismatch",
+                    now,
+                    state,
+                    zone_id=zone.id,
+                    candidate_track_id=asset.track_id,
+                    candidate_class=asset.class_name,
+                )
                 continue
             if not zone.contains_point(asset.center[0], asset.center[1], frame_shape):
+                self._log_gate(
+                    "same_asset_outside_zone",
+                    now,
+                    state,
+                    zone_id=zone.id,
+                    candidate_track_id=asset.track_id,
+                )
                 continue
-            if hypot(asset.center[0] - state.last_center[0], asset.center[1] - state.last_center[1]) <= max_distance:
+            distance = hypot(
+                asset.center[0] - state.last_center[0],
+                asset.center[1] - state.last_center[1],
+            )
+            if distance > max_distance:
+                self._log_gate(
+                    "same_asset_distance_exceeded",
+                    now,
+                    state,
+                    zone_id=zone.id,
+                    candidate_track_id=asset.track_id,
+                    distance=round(distance, 3),
+                    max_distance=round(max_distance, 3),
+                )
+                continue
+            streak_seconds = (
+                now - state.inside_streak_start
+                if state.inside_streak_start is not None
+                else 0.0
+            )
+            if (
+                state.inside_streak_start is not None
+                and streak_seconds >= self.reappear_confirm_seconds
+            ):
+                self._log_gate(
+                    "same_asset_reappear_confirmed",
+                    now,
+                    state,
+                    zone_id=zone.id,
+                    candidate_track_id=asset.track_id,
+                    elapsed_seconds=round(streak_seconds, 3),
+                    threshold_seconds=self.reappear_confirm_seconds,
+                )
                 return True
+            self._log_gate(
+                "same_asset_reappear_unconfirmed",
+                now,
+                state,
+                zone_id=zone.id,
+                candidate_track_id=asset.track_id,
+                elapsed_seconds=round(streak_seconds, 3),
+                threshold_seconds=self.reappear_confirm_seconds,
+            )
+        self._log_gate("same_asset_absent", now, state, zone_id=zone.id)
         return False
 
     def _nearest_interacting_person(
@@ -357,19 +490,62 @@ class AssetWatchDetector:
         height, width = frame_shape[:2]
         return max(hypot(width, height), 1.0)
 
+    @staticmethod
+    def _log_gate(gate: str, now: float, state: _AssetState, **fields: Any) -> None:
+        details = " ".join(f"{key}={value}" for key, value in fields.items())
+        logger.debug(
+            "asset_watch gate=%s now=%.3fs track_id=%s class=%s %s",
+            gate,
+            now,
+            state.track_id,
+            state.class_name,
+            details,
+        )
+
     def _cleanup_zone(self, camera_id: str, zone_id: str, now: float) -> None:
         for key, state in list(self._assets.items()):
             if key[:2] != (camera_id, zone_id):
                 continue
             if now - state.last_seen_inside > self.cleanup_seconds:
                 self._assets.pop(key, None)
+        self._cleanup_alerted_assets(now)
+
+    def _recent_asset_alert_exists(
+        self,
+        camera_id: str,
+        zone_id: str,
+        class_name: str,
+        track_id: int,
+        now: float,
+    ) -> bool:
+        for key, alerted_at in self._alerted_assets.items():
+            alerted_camera, alerted_zone, alerted_class, alerted_track = key
+            if (alerted_camera, alerted_zone, alerted_class) != (camera_id, zone_id, class_name):
+                continue
+            if alerted_track == track_id:
+                return True
+            if self.alert_repeat_seconds > 0 and now - alerted_at < self.alert_repeat_seconds:
+                return True
+        return False
+
+    def _cleanup_alerted_assets(self, now: float) -> None:
+        if self.alert_repeat_seconds <= 0:
+            self._alerted_assets.clear()
+            return
+        self._alerted_assets = {
+            key: alerted_at
+            for key, alerted_at in self._alerted_assets.items()
+            if now - alerted_at < self.alert_repeat_seconds
+        }
 
     def _clear_camera(self, camera_id: str) -> None:
         for key in list(self._assets):
             if key[0] == camera_id:
                 self._assets.pop(key, None)
         self._alerted_assets = {
-            key for key in self._alerted_assets if key[0] != camera_id
+            key: alerted_at
+            for key, alerted_at in self._alerted_assets.items()
+            if key[0] != camera_id
         }
 
 

@@ -89,7 +89,6 @@
     ctx.save();
     ctx.lineWidth = active ? 2.5 : 1.5;
     ctx.strokeStyle = color;
-    ctx.fillStyle = active ? "rgba(84, 195, 145, .18)" : "rgba(140, 160, 170, .10)";
     ctx.beginPath();
     points.forEach((point, index) => {
       const [x, y] = toCanvas(point);
@@ -97,7 +96,6 @@
       else ctx.lineTo(x, y);
     });
     if (points.length >= 3) ctx.closePath();
-    ctx.fill();
     ctx.stroke();
     for (const point of points) {
       const [x, y] = toCanvas(point);

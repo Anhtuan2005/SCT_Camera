@@ -8,10 +8,11 @@ from typing import Any
 
 from analytics.asset_watch import AssetWatchDetector
 from analytics.behavior_learning import BehaviorLearningService
-from analytics.intrusion import IntrusionDetector
-from analytics.line_counter import CountingLine, LineCounter
+from analytics.fall_detection import FallDetector
+from analytics.intrusion import CountingLine, IntrusionDetector
 from analytics.loitering import LoiteringDetector
 from analytics.person_identity import PersonIdentityResolver
+from analytics.pose_classifier import PoseClassifier
 from analytics.suspicious_stranger import SuspiciousStrangerDetector
 from analytics.theft_behavior import SuspiciousTheftDetector
 from analytics.unknown_person import UnknownPersonDetector
@@ -52,11 +53,17 @@ class BehaviorEngine:
         self.loitering = LoiteringDetector(
             default_threshold_seconds=float(
                 behavior.get("loitering_threshold_seconds", 20)
-            )
+            ),
+            state_grace_seconds=float(
+                behavior.get("loitering_state_grace_seconds", 3)
+            ),
         )
         self.suspicious_stranger = SuspiciousStrangerDetector(
             default_threshold_seconds=float(behavior.get("stranger_watch_seconds", 180)),
             settings=behavior.get("suspicious", {}),
+            state_grace_seconds=float(
+                behavior.get("stranger_watch_state_grace_seconds", 3)
+            ),
         )
         self.unknown_person = UnknownPersonDetector()
         self.asset_watch = AssetWatchDetector(
@@ -66,8 +73,9 @@ class BehaviorEngine:
         self.theft_behavior = SuspiciousTheftDetector(
             settings=behavior.get("theft", {}),
         )
-        self.line_counter = LineCounter()
         self.identity_resolver = identity_resolver or PersonIdentityResolver(settings)
+        self.pose_classifier = PoseClassifier(settings)
+        self.fall_detector = FallDetector(settings)
         self.learning = BehaviorLearningService(settings)
 
     def label_objects(
@@ -88,12 +96,14 @@ class BehaviorEngine:
             "unknown_by_default",
             "all_unknown",
         }
-        return self.identity_resolver.label_objects(
+        labeled = self.identity_resolver.label_objects(
             camera_id,
             tracked_objects,
             frame_bgr,
             assume_unknown_persons=assume_unknown_persons,
         )
+        frame_shape = getattr(frame_bgr, "shape", (1, 1, 3))
+        return self.pose_classifier.label_objects(camera_id, labeled, frame_shape)
 
     def analyze(
         self,
@@ -111,7 +121,13 @@ class BehaviorEngine:
         alerts: list[dict[str, Any]] = []
         alerts.extend(
             self.intrusion.analyze(
-                camera_id, camera_name, tracked_objects, zones, frame_shape, timestamp
+                camera_id,
+                camera_name,
+                tracked_objects,
+                zones,
+                lines,
+                frame_shape,
+                timestamp,
             )
         )
         alerts.extend(
@@ -134,19 +150,21 @@ class BehaviorEngine:
                 camera_id, camera_name, tracked_objects, zones, frame_shape, timestamp
             )
         )
-        alerts.extend(
-            self.asset_watch.analyze(
-                camera_id, camera_name, tracked_objects, zones, frame_shape, timestamp
+        asset_watch_zones = [zone for zone in zones if zone.applies_to("asset_watch")]
+        if asset_watch_zones:
+            alerts.extend(
+                self.asset_watch.analyze(
+                    camera_id, camera_name, tracked_objects, asset_watch_zones, frame_shape, timestamp
+                )
             )
-        )
-        alerts.extend(
-            self.theft_behavior.analyze(
-                camera_id, camera_name, tracked_objects, zones, frame_shape, timestamp
+            alerts.extend(
+                self.theft_behavior.analyze(
+                    camera_id, camera_name, tracked_objects, asset_watch_zones, frame_shape, timestamp
+                )
             )
-        )
         alerts.extend(
-            self.line_counter.analyze(
-                camera_id, camera_name, tracked_objects, lines, frame_shape, timestamp
+            self.fall_detector.analyze(
+                camera_id, camera_name, tracked_objects, timestamp
             )
         )
         return self.learning.enrich_alerts(
@@ -159,7 +177,7 @@ class BehaviorEngine:
 
     def get_counters(self, camera_id: str) -> dict[str, dict[str, int]]:
         """Return line counters for a camera."""
-        return self.line_counter.get_counters(camera_id)
+        return self.intrusion.get_counters(camera_id)
 
     def get_person_timer_states(self, camera_id: str) -> dict[int, dict[str, Any]]:
         """Return live ROI loitering timers keyed by track id."""

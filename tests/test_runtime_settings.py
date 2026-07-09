@@ -131,6 +131,43 @@ class RuntimeSettingsTests(unittest.TestCase):
         runtime._save_camera_config.assert_called_once()
         runtime._restart_pipeline.assert_called_once()
 
+    def test_zone_update_preserves_dwell_policy_fields(self) -> None:
+        runtime = RuntimeState.__new__(RuntimeState)
+        runtime._lock = RLock()
+        runtime.cameras = {
+            "cam": {
+                "camera_id": "cam",
+                "zones": [
+                    {
+                        "id": "porch",
+                        "name": "Porch",
+                        "type": "loitering",
+                        "polygon": [[0, 0], [1, 0], [1, 1]],
+                        "identity_multipliers": {"known_person": None},
+                        "session_gap_seconds": 60,
+                    }
+                ],
+            }
+        }
+        runtime._save_camera_config = MagicMock()
+        runtime._sync_pipeline_config = MagicMock()
+
+        saved = runtime.upsert_zone(
+            "cam",
+            {
+                "id": "porch",
+                "name": "Porch",
+                "type": "loitering",
+                "polygon": [[0, 0], [1, 0], [1, 1], [0, 1]],
+                "threshold_seconds": 20,
+            },
+        )
+
+        self.assertEqual({"known_person": None}, saved["identity_multipliers"])
+        self.assertEqual(60, saved["session_gap_seconds"])
+        runtime._save_camera_config.assert_called_once()
+        runtime._sync_pipeline_config.assert_called_once_with("cam")
+
     @patch("web.app.CameraPipeline")
     def test_restart_pipeline_uses_camera_scoped_behavior_engines(self, pipeline_cls) -> None:
         first_pipeline = MagicMock()
@@ -189,7 +226,11 @@ class RuntimeSettingsTests(unittest.TestCase):
         self.assertEqual(5.0, MAX_QUALITY_RUNTIME_SETTINGS["pipeline"]["analysis_timeout_min_seconds"])
         self.assertEqual(720, MAX_QUALITY_RUNTIME_SETTINGS["pipeline"]["processing_max_height"])
         self.assertEqual(
-            0.12,
+            0.60,
+            MAX_QUALITY_RUNTIME_SETTINGS["detection"]["class_confidences"]["cat"],
+        )
+        self.assertEqual(
+            0.60,
             MAX_QUALITY_RUNTIME_SETTINGS["detection"]["class_confidences"]["dog"],
         )
         self.assertEqual(
@@ -197,21 +238,31 @@ class RuntimeSettingsTests(unittest.TestCase):
             MAX_QUALITY_RUNTIME_SETTINGS["detection"]["class_confidences"]["bicycle"],
         )
         self.assertEqual(
-            0.20,
+            0.35,
             MAX_QUALITY_RUNTIME_SETTINGS["detection"]["class_confidences"]["person"],
         )
+        self.assertEqual(4.5, MAX_QUALITY_RUNTIME_SETTINGS["detection"]["person_max_aspect_ratio"])
+        self.assertEqual(3000, MAX_QUALITY_RUNTIME_SETTINGS["detection"]["person_min_bbox_area"])
+        self.assertEqual(0.25, MAX_QUALITY_RUNTIME_SETTINGS["pose"]["match_iou"])
+        self.assertEqual(8, MAX_QUALITY_RUNTIME_SETTINGS["pose"]["false_person_filter_grace_frames"])
         self.assertEqual(0.10, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["track_high_thresh"])
         self.assertEqual(0.05, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["track_low_thresh"])
         self.assertEqual(0.10, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["new_track_thresh"])
         self.assertEqual(90, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["track_buffer"])
-        self.assertEqual(3, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["track_grace_frames"])
+        self.assertEqual(90, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["track_grace_frames"])
+        self.assertEqual(0.55, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["duplicate_iou_threshold"])
         self.assertFalse(
             MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["camera_motion_compensation"]["enabled"]
         )
         self.assertEqual(
-            0.7,
+            0.55,
             MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["duplicate_containment_threshold"],
         )
+        self.assertEqual(8, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["class_smoothing_history_length"])
+        self.assertEqual(5, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["class_switch_confirm_frames"])
+        self.assertEqual(0.7, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["person_animal_flip_iou_threshold"])
+        self.assertEqual(0.4, MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["ghost_animal_person_iou_threshold"])
+        self.assertTrue(MAX_QUALITY_RUNTIME_SETTINGS["tracking"]["lost_track_reid_enabled"])
         self.assertEqual(0.45, MAX_QUALITY_RUNTIME_SETTINGS["identity"]["similarity_threshold"])
         self.assertEqual("buffalo_sc", MAX_QUALITY_RUNTIME_SETTINGS["identity"]["model"])
         self.assertEqual("cuda:0", MAX_QUALITY_RUNTIME_SETTINGS["identity"]["device"])

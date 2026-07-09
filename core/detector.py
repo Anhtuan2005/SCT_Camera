@@ -36,7 +36,7 @@ class YOLOv11Detector:
         self.class_ids = [int(item) for item in detection_settings.get("classes", [0, 15, 16, 2, 3, 5, 7])]
         self.iou = float(detection_settings.get("iou", 0.5))
         self.person_max_aspect_ratio = float(
-            detection_settings.get("person_max_aspect_ratio", 4.0)
+            detection_settings.get("person_max_aspect_ratio", 4.5)
         )
         self.person_min_bbox_area = int(
             detection_settings.get("person_min_bbox_area", 3000)
@@ -195,7 +195,7 @@ class YOLOv11Detector:
 
 
 def _parse_class_confidences(value: Any) -> dict[str, float]:
-    default_thresholds = {"person": 0.20}
+    default_thresholds = {"person": 0.28, "cat": 0.6, "dog": 0.6}
     if not isinstance(value, dict):
         return default_thresholds
     parsed: dict[str, float] = {}
@@ -240,10 +240,34 @@ def _valid_detection_shape(
     width = max(0.0, x2 - x1)
     height = max(0.0, y2 - y1)
     if width <= 0 or height <= 0:
+        logger.debug(
+            "Dropping invalid person bbox shape bbox=%s width=%.1f height=%.1f",
+            bbox_xyxy,
+            width,
+            height,
+        )
         return False
     aspect_ratio = max(width / height, height / width)
     if aspect_ratio > person_max_aspect_ratio:
+        logger.debug(
+            (
+                "Dropping person detection by aspect ratio bbox=%s "
+                "aspect_ratio=%.2f max_aspect_ratio=%.2f"
+            ),
+            bbox_xyxy,
+            aspect_ratio,
+            person_max_aspect_ratio,
+        )
         return False
     if person_min_bbox_area > 0 and width * height < person_min_bbox_area:
+        logger.debug(
+            (
+                "Dropping person detection by area bbox=%s area=%.0f "
+                "min_area=%d"
+            ),
+            bbox_xyxy,
+            width * height,
+            person_min_bbox_area,
+        )
         return False
     return True

@@ -24,6 +24,8 @@ from core.pipeline import CameraPipeline
 from core.pose import PoseEstimator
 from notifications.alert_manager import AlertManager
 from utils.logger import get_logger
+from web.auth import AuthMiddleware, auth_secret_from_settings
+from web.routes import auth as auth_routes
 from web.routes import config_api, dashboard, stream
 
 logger = get_logger(__name__)
@@ -38,11 +40,11 @@ MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
             "bicycle": 0.10,
             "bus": 0.15,
             "car": 0.15,
-            "cat": 0.12,
-            "dog": 0.12,
+            "cat": 0.60,
+            "dog": 0.60,
             "handbag": 0.12,
             "motorcycle": 0.10,
-            "person": 0.20,
+            "person": 0.35,
             "suitcase": 0.12,
             "truck": 0.15,
         },
@@ -51,7 +53,8 @@ MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
         "half": True,
         "imgsz": 640,
         "iou": 0.55,
-        "person_max_aspect_ratio": 4.0,
+        "person_max_aspect_ratio": 4.5,
+        "person_min_bbox_area": 3000,
     },
     "pose": {
         "enabled": True,
@@ -59,7 +62,8 @@ MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
         "allow_download": True,
         "confidence": 0.2,
         "imgsz": 640,
-        "match_iou": 0.2,
+        "match_iou": 0.25,
+        "false_person_filter_grace_frames": 8,
     },
     "pipeline": {
         "frame_skip": 2,
@@ -73,9 +77,14 @@ MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
         "track_low_thresh": 0.05,
         "new_track_thresh": 0.10,
         "track_buffer": 90,
-        "track_grace_frames": 3,
-        "duplicate_iou_threshold": 0.85,
-        "duplicate_containment_threshold": 0.7,
+        "track_grace_frames": 90,
+        "duplicate_iou_threshold": 0.55,
+        "duplicate_containment_threshold": 0.55,
+        "class_smoothing_history_length": 8,
+        "class_switch_confirm_frames": 5,
+        "person_animal_flip_iou_threshold": 0.7,
+        "ghost_animal_person_iou_threshold": 0.4,
+        "lost_track_reid_enabled": True,
         "camera_motion_compensation": {
             "enabled": False,
         },
@@ -180,9 +189,12 @@ def create_app(runtime: "RuntimeState") -> FastAPI:
 
     app = FastAPI(title="SCT Camera", version="1.0.0", lifespan=lifespan)
     app.state.runtime = runtime
+    app.state.auth_secret = auth_secret_from_settings(runtime.settings)
+    app.add_middleware(AuthMiddleware)
 
     static_dir = Path(__file__).resolve().parent / "static"
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    app.include_router(auth_routes.router)
     app.include_router(dashboard.router)
     app.include_router(stream.router)
     app.include_router(config_api.router)
@@ -478,7 +490,16 @@ class RuntimeState:
             if config is None:
                 return None
             zone_id = self._safe_id(str(payload.get("id") or f"zone_{uuid.uuid4().hex[:8]}"))
+            existing_zone = next(
+                (
+                    item
+                    for item in config.get("zones", [])
+                    if str(item.get("id")) == zone_id
+                ),
+                {},
+            )
             zone = {
+                **copy.deepcopy(existing_zone),
                 "id": zone_id,
                 "name": str(payload.get("name") or zone_id),
                 "type": str(payload.get("type") or payload.get("zone_type") or "all"),
@@ -486,6 +507,14 @@ class RuntimeState:
             }
             if payload.get("threshold_seconds") not in (None, ""):
                 zone["threshold_seconds"] = float(payload["threshold_seconds"])
+            for field in (
+                "identity_multipliers",
+                "escalation_tiers",
+                "session_gap_seconds",
+                "time_of_day_multipliers",
+            ):
+                if payload.get(field) not in (None, ""):
+                    zone[field] = copy.deepcopy(payload[field])
             zones = [item for item in config.get("zones", []) if str(item.get("id")) != zone_id]
             zones.append(zone)
             config["zones"] = zones

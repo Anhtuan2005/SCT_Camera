@@ -8,7 +8,15 @@ from typing import Any
 import cv2
 import numpy as np
 
+from analytics.dwell_policy import DwellPolicy
+
 Point = tuple[float, float]
+_DWELL_POLICY_KEYS = {
+    "escalation_tiers",
+    "identity_multipliers",
+    "session_gap_seconds",
+    "time_of_day_multipliers",
+}
 
 
 @dataclass(frozen=True)
@@ -21,22 +29,31 @@ class Zone:
     polygon: list[Point]
     threshold_seconds: float | None = None
     auto_generated: bool = False
+    dwell_policy: DwellPolicy | None = None
 
     @classmethod
     def from_config(cls, data: dict[str, Any]) -> "Zone":
         """Build a zone from YAML or API data."""
         polygon = [tuple(map(float, point)) for point in data.get("polygon", [])]
+        threshold_seconds = (
+            float(data["threshold_seconds"])
+            if data.get("threshold_seconds") is not None
+            else None
+        )
+        dwell_policy = (
+            DwellPolicy.from_zone_config(data, threshold_seconds or 20.0)
+            if threshold_seconds is not None
+            or any(key in data for key in _DWELL_POLICY_KEYS)
+            else None
+        )
         return cls(
             id=str(data.get("id", data.get("name", "zone"))),
             name=str(data.get("name", data.get("id", "Zone"))),
             zone_type=str(data.get("type", data.get("zone_type", "intrusion"))),
             polygon=polygon,
-            threshold_seconds=(
-                float(data["threshold_seconds"])
-                if data.get("threshold_seconds") is not None
-                else None
-            ),
+            threshold_seconds=threshold_seconds,
             auto_generated=bool(data.get("auto_generated", False)),
+            dwell_policy=dwell_policy,
         )
 
     def pixel_polygon(self, frame_shape: tuple[int, int, int] | tuple[int, int]) -> np.ndarray:

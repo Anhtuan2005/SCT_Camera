@@ -39,6 +39,10 @@ class ZonePayload(BaseModel):
     type: str = Field(pattern="^(all|intrusion|loitering|counting|stranger_watch|asset_watch)$")
     polygon: list[list[float]]
     threshold_seconds: float | None = None
+    identity_multipliers: dict[str, float | None] | None = None
+    escalation_tiers: list[dict[str, Any]] | None = None
+    session_gap_seconds: float | None = None
+    time_of_day_multipliers: list[dict[str, Any]] | None = None
 
 
 class LinePayload(BaseModel):

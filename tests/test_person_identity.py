@@ -330,6 +330,27 @@ class PersonIdentityTests(unittest.TestCase):
         self.assertEqual("Alice", second[0].identity_label)
         self.assertEqual("known_person", second[0].identity_kind)
 
+    def test_nearby_new_track_does_not_clone_active_known_identity(self) -> None:
+        resolver, _analyzer = _resolver([1.0, 0.0])
+        resolver.recognition_interval = 1
+        resolver.unknown_confirmation_attempts = 2
+        frame = np.zeros((240, 160, 3), dtype=np.uint8)
+
+        first = resolver.label_objects("cam", [_person(16)], frame)
+        resolver._face_app = _FakeFaceAnalyzer([])
+        second = resolver.label_objects(
+            "cam",
+            [
+                _person(16),
+                _person(17, bbox=(4.0, 6.0, 104.0, 206.0)),
+            ],
+            frame,
+        )
+
+        self.assertEqual("Alice", first[0].identity_label)
+        self.assertEqual("Alice", second[0].identity_label)
+        self.assertEqual(PENDING_PERSON_KIND, second[1].identity_kind)
+
     def test_far_new_track_does_not_inherit_recent_known_identity(self) -> None:
         resolver, _analyzer = _resolver([1.0, 0.0])
         resolver.recognition_interval = 1

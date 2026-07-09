@@ -25,6 +25,7 @@ class AlertManager:
     def __init__(self, settings: dict[str, Any]) -> None:
         telegram = settings.get("telegram", {})
         self.cooldown_seconds = float(telegram.get("cooldown_seconds", 10))
+        self.cooldown_overrides = self._parse_cooldown_overrides(telegram)
         self.bot = TelegramBot(settings)
         self.discord = DiscordBot(settings)
         self.siren = SirenController(settings)
@@ -125,6 +126,7 @@ class AlertManager:
         """Apply new alert settings without restarting FastAPI."""
         telegram = settings.get("telegram", {})
         self.cooldown_seconds = float(telegram.get("cooldown_seconds", self.cooldown_seconds))
+        self.cooldown_overrides = self._parse_cooldown_overrides(telegram, fallback=self.cooldown_overrides)
         self.bot = TelegramBot(settings)
         self.discord = DiscordBot(settings)
         self.siren = SirenController(settings)
@@ -146,9 +148,11 @@ class AlertManager:
     async def _handle_alert(self, alert: dict[str, Any]) -> None:
         record = self._history_record(alert)
         cooldown_key = self._cooldown_key(alert)
+        alert_type = str(alert.get("type", "alert"))
+        cooldown_seconds = self.cooldown_overrides.get(alert_type, self.cooldown_seconds)
         now = asyncio.get_running_loop().time()
         last_sent = self._last_sent_at.get(cooldown_key, 0.0)
-        cooldown_remaining = self.cooldown_seconds - (now - last_sent)
+        cooldown_remaining = cooldown_seconds - (now - last_sent)
 
         if cooldown_remaining > 0:
             record["suppressed"] = True
@@ -160,6 +164,7 @@ class AlertManager:
                 cooldown_key[1],
                 cooldown_key[2],
             )
+            return
         else:
             channels = self._channels_for_alert(alert)
             telegram_sent, discord_sent = await asyncio.gather(
@@ -217,6 +222,12 @@ class AlertManager:
 
     @staticmethod
     def _cooldown_key(alert: dict[str, Any]) -> tuple[str, str, str]:
+        if alert.get("type") == "intrusion" and alert.get("line_id") and alert.get("track_id") is not None:
+            return (
+                str(alert.get("camera_id", "unknown")),
+                "intrusion",
+                f"{alert.get('line_id')}:track:{alert.get('track_id')}",
+            )
         target = str(
             alert.get("zone_id")
             or alert.get("line_id")
@@ -232,6 +243,22 @@ class AlertManager:
         return str(alert.get("camera_id", "unknown")), str(alert.get("type", "alert")), target
 
     @staticmethod
+    def _parse_cooldown_overrides(
+        telegram: dict[str, Any],
+        fallback: dict[str, float] | None = None,
+    ) -> dict[str, float]:
+        raw = telegram.get("cooldown_overrides", fallback or {})
+        if not isinstance(raw, dict):
+            return dict(fallback or {})
+        parsed: dict[str, float] = {}
+        for alert_type, seconds in raw.items():
+            try:
+                parsed[str(alert_type)] = max(0.0, float(seconds))
+            except (TypeError, ValueError):
+                continue
+        return parsed
+
+    @staticmethod
     def _history_record(alert: dict[str, Any]) -> dict[str, Any]:
         record = {
             key: value
@@ -240,4 +267,3 @@ class AlertManager:
         }
         record["received_at"] = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
         return record
-

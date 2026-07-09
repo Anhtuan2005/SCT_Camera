@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import time
+from dataclasses import dataclass
 from typing import Any
 
 import cv2
 import numpy as np
 
-from analytics.identity_status import KNOWN_PERSON_KIND
-from analytics.line_counter import CountingLine
+from analytics.identity_status import KNOWN_PERSON_KIND, PENDING_PERSON_KIND, STRANGER_KIND
+from analytics.intrusion import CountingLine
 from analytics.zone import Zone
 from core.tracker import TrackedObject
 
@@ -20,6 +22,16 @@ COLOR_BY_ZONE = {
     "stranger_watch": (245, 120, 120),
     "asset_watch": (112, 215, 235),
 }
+ALERT_COLOR = (48, 59, 255)
+ALERT_FLASH_INTERVAL_SECONDS = 0.25
+
+
+@dataclass(frozen=True)
+class _AlertVisualState:
+    zone_ids: set[str]
+    line_ids: set[str]
+    track_ids: set[int]
+    flash_on: bool
 
 
 def draw_annotations(
@@ -28,42 +40,73 @@ def draw_annotations(
     camera_config: dict[str, Any],
     counters: dict[str, dict[str, int]] | None = None,
     person_timer_states: dict[int, dict[str, Any]] | None = None,
+    active_alerts: list[dict[str, Any]] | None = None,
 ) -> np.ndarray:
     """Draw zones, lines, track boxes, histories, and counters on a frame."""
     counters = counters or {}
     person_timer_states = person_timer_states or {}
+    alert_state = _alert_visual_state(active_alerts or [])
     zones = [Zone.from_config(item) for item in camera_config.get("zones", []) if len(item.get("polygon", [])) >= 3]
     lines = [CountingLine.from_config(item) for item in camera_config.get("lines", [])]
 
     annotated = frame.copy()
-    overlay = annotated.copy()
     for zone in zones:
-        _draw_zone(overlay, annotated, zone)
-    annotated = cv2.addWeighted(overlay, 0.24, annotated, 0.76, 0)
+        _draw_zone(
+            annotated,
+            zone,
+            alerting=zone.id in alert_state.zone_ids,
+            flash_on=alert_state.flash_on,
+        )
 
     for line in lines:
-        _draw_line(annotated, line, counters.get(line.id, {"in": 0, "out": 0}))
+        _draw_line(
+            annotated,
+            line,
+            counters.get(line.id, {"in": 0, "out": 0}),
+            alerting=line.id in alert_state.line_ids,
+            flash_on=alert_state.flash_on,
+        )
 
     for obj in tracked_objects:
-        _draw_object(annotated, obj, person_timer_states.get(obj.track_id))
+        _draw_object(
+            annotated,
+            obj,
+            person_timer_states.get(obj.track_id),
+            alerting=obj.track_id in alert_state.track_ids,
+            flash_on=alert_state.flash_on,
+        )
 
     _draw_frame_hud(annotated, camera_config, tracked_objects)
     return annotated
 
 
-def _draw_zone(overlay: np.ndarray, base: np.ndarray, zone: Zone) -> None:
-    polygon = zone.pixel_polygon(base.shape)
-    color = COLOR_BY_ZONE.get(zone.zone_type, (150, 170, 190))
-    cv2.fillPoly(overlay, [polygon], color)
-    cv2.polylines(base, [polygon], isClosed=True, color=color, thickness=_line_thickness(base))
+def _draw_zone(
+    frame: np.ndarray,
+    zone: Zone,
+    alerting: bool = False,
+    flash_on: bool = False,
+) -> None:
+    polygon = zone.pixel_polygon(frame.shape)
+    color = ALERT_COLOR if alerting and flash_on else COLOR_BY_ZONE.get(zone.zone_type, (150, 170, 190))
+    thickness = _line_thickness(frame) + (2 if alerting and flash_on else 0)
+    shadow = max(thickness + 1, 3)
+    cv2.polylines(frame, [polygon], isClosed=True, color=(10, 14, 18), thickness=shadow, lineType=cv2.LINE_AA)
+    cv2.polylines(frame, [polygon], isClosed=True, color=color, thickness=thickness, lineType=cv2.LINE_AA)
     label_point = tuple(polygon[0])
-    _draw_label(base, zone.name, label_point, color)
+    label = f"ALERT {zone.name}" if alerting and flash_on else zone.name
+    _draw_label(frame, label, label_point, color)
 
 
-def _draw_line(frame: np.ndarray, line: CountingLine, counter: dict[str, int]) -> None:
+def _draw_line(
+    frame: np.ndarray,
+    line: CountingLine,
+    counter: dict[str, int],
+    alerting: bool = False,
+    flash_on: bool = False,
+) -> None:
     p1, p2 = line.pixel_points(frame.shape)
-    color = (112, 215, 235)
-    thickness = _line_thickness(frame)
+    color = ALERT_COLOR if alerting and flash_on else (112, 215, 235)
+    thickness = _line_thickness(frame) + (2 if alerting and flash_on else 0)
     cv2.line(frame, p1, p2, color, thickness, lineType=cv2.LINE_AA)
 
     mid = ((p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2)
@@ -86,18 +129,26 @@ def _draw_object(
     frame: np.ndarray,
     obj: TrackedObject,
     person_timer_state: dict[str, Any] | None = None,
+    alerting: bool = False,
+    flash_on: bool = False,
 ) -> None:
     h, w = frame.shape[:2]
     x1, y1, x2, y2 = [int(round(value)) for value in obj.bbox_xyxy]
     x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w - 1, x2), min(h - 1, y2)
     if x2 <= x1 or y2 <= y1:
         return
-    color = _color_for_id(obj.track_id)
-    thickness = _line_thickness(frame)
+    # Only flash the alert effect for confirmed strangers.
+    # Known people and pending/identifying tracks should never flash.
+    is_stranger = obj.identity_kind == STRANGER_KIND
+    should_flash = alerting and flash_on and is_stranger
+    color = ALERT_COLOR if should_flash else _color_for_object(obj)
+    thickness = _line_thickness(frame) + (2 if should_flash else 0)
     shadow = max(thickness + 1, 3)
     cv2.rectangle(frame, (x1, y1), (x2, y2), (10, 14, 18), shadow, lineType=cv2.LINE_AA)
     cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness, lineType=cv2.LINE_AA)
     label = _object_label(obj)
+    if should_flash:
+        label = f"ALERT {label}"
     _draw_label(frame, label, (x1, y1 - max(8, int(8 * _visual_scale(frame)))), color)
     if person_timer_state:
         _draw_timer_badge(frame, person_timer_state, (x1, y1, x2, y2))
@@ -269,6 +320,45 @@ def _draw_filled_rect_alpha(
     )
 
 
+def _alert_visual_state(active_alerts: list[dict[str, Any]]) -> _AlertVisualState:
+    now = time.monotonic()
+    zone_ids: set[str] = set()
+    line_ids: set[str] = set()
+    track_ids: set[int] = set()
+    flash_on = False
+    for alert in active_alerts:
+        expires_at = _float_or_none(alert.get("expires_at"))
+        if expires_at is not None and expires_at <= now:
+            continue
+        zone_id = alert.get("zone_id")
+        if zone_id is not None:
+            zone_ids.add(str(zone_id))
+        line_id = alert.get("line_id")
+        if line_id is not None:
+            line_ids.add(str(line_id))
+        track_id = _int_or_none(alert.get("track_id"))
+        if track_id is not None:
+            track_ids.add(track_id)
+        started_at = _float_or_none(alert.get("started_at")) or now
+        elapsed = max(0.0, now - started_at)
+        flash_on = flash_on or int(elapsed / ALERT_FLASH_INTERVAL_SECONDS) % 2 == 0
+    return _AlertVisualState(zone_ids, line_ids, track_ids, flash_on)
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _visual_scale(frame: np.ndarray) -> float:
     height = frame.shape[0]
     return max(1.0, min(1.55, height / 720.0))
@@ -281,9 +371,11 @@ def _line_thickness(frame: np.ndarray) -> int:
 def _object_label(obj: TrackedObject) -> str:
     if obj.class_name == "person":
         label = obj.identity_label or "person"
-        if obj.identity_kind == KNOWN_PERSON_KIND:
-            return label
-        return f"{label} #{obj.track_id}"
+        if obj.identity_kind != KNOWN_PERSON_KIND:
+            label = f"{label} #{obj.track_id}"
+        if obj.pose_label and obj.pose_label not in {"unknown", "upright"}:
+            label = f"{label} - {obj.pose_label}"
+        return label
     return f"{obj.class_name} #{obj.track_id}"
 
 
@@ -291,6 +383,24 @@ def _format_seconds(value: float) -> str:
     total_seconds = max(0, int(round(value)))
     minutes, seconds = divmod(total_seconds, 60)
     return f"{minutes:02d}:{seconds:02d}"
+
+
+def _color_for_object(obj: TrackedObject) -> tuple[int, int, int]:
+    """Pick a color based on identity status.
+
+    - Known person: stable green
+    - Pending/Identifying: amber/yellow
+    - Stranger: magenta/pink (high visibility)
+    - Non-person objects: palette by track_id
+    """
+    if obj.class_name == "person":
+        if obj.identity_kind == KNOWN_PERSON_KIND:
+            return (75, 210, 145)      # green — safe, recognized
+        if obj.identity_kind == PENDING_PERSON_KIND:
+            return (0, 190, 255)       # amber — still identifying
+        if obj.identity_kind == STRANGER_KIND:
+            return (180, 80, 255)      # magenta — stranger, attention
+    return _color_for_id(obj.track_id)
 
 
 def _color_for_id(track_id: int) -> tuple[int, int, int]:

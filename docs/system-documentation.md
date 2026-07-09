@@ -306,7 +306,7 @@ Thứ tự rule:
 4. `SuspiciousStrangerDetector`
 5. `AssetWatchDetector`
 6. `SuspiciousTheftDetector`
-7. `LineCounter`
+7. `IntrusionDetector` line crossing
 8. `BehaviorLearningService.enrich_alerts`
 
 Zone config:
