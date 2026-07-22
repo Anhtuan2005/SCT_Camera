@@ -90,7 +90,15 @@ class DiscordBot:
         return False
 
     def _build_message(self, alert: dict[str, Any]) -> str:
-        alert_type = str(alert.get("type", "alert")).replace("_", " ").upper()
+        fallback_title = str(alert.get("type", "alert")).replace("_", " ").upper()
+        title = str(alert.get("title") or fallback_title)
+        severity = str(alert.get("severity", "warning")).strip().lower()
+        icon = {
+            "emergency": "🆘",
+            "critical": "🚨",
+            "warning": "⚠️",
+            "info": "✅",
+        }.get(severity, "🚨")
         camera_name = str(alert.get("camera_name", alert.get("camera_id", "Camera")))
         class_name = str(alert.get("class_name", "object"))
         identity_label = str(alert.get("identity_label", "")).strip()
@@ -105,12 +113,14 @@ class DiscordBot:
             or "-"
         )
         details = str(alert.get("details", ""))
+        action = str(alert.get("recommended_action", "")).strip()
+        action_line = f"\n**Hành động:** {action}" if action else ""
 
         return (
-            f"**[{alert_type}]** - {camera_name}\n"
+            f"{icon} **[{title}]** - {camera_name}\n"
             f"Time: {timestamp}\n"
             f"Object: {object_label} (Track #{track_id})\n"
             f"Zone/Line: {place}\n"
             f"Details: {details}"
+            f"{action_line}"
         )
-

@@ -23,10 +23,17 @@ class CameraPayload(BaseModel):
         pattern="^(face_match|assume_stranger|unknown_by_default|all_unknown)$",
     )
     notification_channels: list[str] | None = None
+    show_theft_overlay: bool | None = None
 
 
 class CameraEnabledPayload(BaseModel):
     """Request payload for toggling camera availability."""
+
+    enabled: bool = True
+
+
+class CameraTheftOverlayPayload(BaseModel):
+    """Request payload for toggling the live theft-scoring overlay."""
 
     enabled: bool = True
 
@@ -63,19 +70,19 @@ class BehaviorEventLabelPayload(BaseModel):
 
 
 @router.get("/cameras")
-async def list_cameras(request: Request) -> list[dict[str, Any]]:
+def list_cameras(request: Request) -> list[dict[str, Any]]:
     """List all camera configs with runtime status."""
     return request.app.state.runtime.list_cameras()
 
 
 @router.post("/cameras")
-async def upsert_camera(request: Request, payload: CameraPayload) -> dict[str, Any]:
+def upsert_camera(request: Request, payload: CameraPayload) -> dict[str, Any]:
     """Create or update a camera."""
     return request.app.state.runtime.upsert_camera(payload.model_dump(exclude_none=True))
 
 
 @router.delete("/cameras/{cam_id}")
-async def delete_camera(request: Request, cam_id: str) -> dict[str, bool]:
+def delete_camera(request: Request, cam_id: str) -> dict[str, bool]:
     """Delete a camera."""
     deleted = request.app.state.runtime.delete_camera(cam_id)
     if not deleted:
@@ -84,7 +91,7 @@ async def delete_camera(request: Request, cam_id: str) -> dict[str, bool]:
 
 
 @router.post("/cameras/{cam_id}/enabled")
-async def set_camera_enabled(request: Request, cam_id: str, payload: CameraEnabledPayload) -> dict[str, Any]:
+def set_camera_enabled(request: Request, cam_id: str, payload: CameraEnabledPayload) -> dict[str, Any]:
     """Enable or disable a camera and start/stop its pipeline."""
     camera = request.app.state.runtime.set_camera_enabled(cam_id, payload.enabled)
     if camera is None:
@@ -92,8 +99,21 @@ async def set_camera_enabled(request: Request, cam_id: str, payload: CameraEnabl
     return camera
 
 
+@router.post("/cameras/{cam_id}/theft-overlay")
+def set_camera_theft_overlay(
+    request: Request,
+    cam_id: str,
+    payload: CameraTheftOverlayPayload,
+) -> dict[str, Any]:
+    """Show or hide the live theft-scoring overlay without restarting the camera."""
+    camera = request.app.state.runtime.set_camera_theft_overlay(cam_id, payload.enabled)
+    if camera is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    return camera
+
+
 @router.get("/cameras/{cam_id}/zones")
-async def get_zones(request: Request, cam_id: str) -> list[dict[str, Any]]:
+def get_zones(request: Request, cam_id: str) -> list[dict[str, Any]]:
     """Return all zones for a camera."""
     camera = request.app.state.runtime.get_raw_camera(cam_id)
     if camera is None:
@@ -102,7 +122,7 @@ async def get_zones(request: Request, cam_id: str) -> list[dict[str, Any]]:
 
 
 @router.post("/cameras/{cam_id}/zones")
-async def upsert_zone(request: Request, cam_id: str, payload: ZonePayload) -> dict[str, Any]:
+def upsert_zone(request: Request, cam_id: str, payload: ZonePayload) -> dict[str, Any]:
     """Create or update a zone."""
     zone = request.app.state.runtime.upsert_zone(cam_id, payload.model_dump(exclude_none=True))
     if zone is None:
@@ -111,7 +131,7 @@ async def upsert_zone(request: Request, cam_id: str, payload: ZonePayload) -> di
 
 
 @router.delete("/cameras/{cam_id}/zones/{zone_id}")
-async def delete_zone(request: Request, cam_id: str, zone_id: str) -> dict[str, bool]:
+def delete_zone(request: Request, cam_id: str, zone_id: str) -> dict[str, bool]:
     """Delete a zone."""
     deleted = request.app.state.runtime.delete_zone(cam_id, zone_id)
     if not deleted:
@@ -120,7 +140,7 @@ async def delete_zone(request: Request, cam_id: str, zone_id: str) -> dict[str, 
 
 
 @router.get("/cameras/{cam_id}/lines")
-async def get_lines(request: Request, cam_id: str) -> list[dict[str, Any]]:
+def get_lines(request: Request, cam_id: str) -> list[dict[str, Any]]:
     """Return all counting lines for a camera."""
     camera = request.app.state.runtime.get_raw_camera(cam_id)
     if camera is None:
@@ -129,7 +149,7 @@ async def get_lines(request: Request, cam_id: str) -> list[dict[str, Any]]:
 
 
 @router.post("/cameras/{cam_id}/lines")
-async def upsert_line(request: Request, cam_id: str, payload: LinePayload) -> dict[str, Any]:
+def upsert_line(request: Request, cam_id: str, payload: LinePayload) -> dict[str, Any]:
     """Create or update a counting line."""
     line = request.app.state.runtime.upsert_line(cam_id, payload.model_dump(exclude_none=True))
     if line is None:
@@ -138,7 +158,7 @@ async def upsert_line(request: Request, cam_id: str, payload: LinePayload) -> di
 
 
 @router.delete("/cameras/{cam_id}/lines/{line_id}")
-async def delete_line(request: Request, cam_id: str, line_id: str) -> dict[str, bool]:
+def delete_line(request: Request, cam_id: str, line_id: str) -> dict[str, bool]:
     """Delete a counting line."""
     deleted = request.app.state.runtime.delete_line(cam_id, line_id)
     if not deleted:
@@ -161,13 +181,13 @@ async def test_discord(request: Request) -> dict[str, bool]:
 
 
 @router.put("/settings")
-async def update_settings(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+def update_settings(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     """Update global settings."""
     return request.app.state.runtime.update_settings(payload)
 
 
 @router.post("/detection/toggle/{cam_id}")
-async def toggle_detection(request: Request, cam_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def toggle_detection(request: Request, cam_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Toggle detection on/off for a single camera."""
     active = bool(payload.get("active", True))
     result = request.app.state.runtime.toggle_detection(cam_id, active)
@@ -177,14 +197,14 @@ async def toggle_detection(request: Request, cam_id: str, payload: dict[str, Any
 
 
 @router.post("/detection/toggle-all")
-async def toggle_all_detection(request: Request, payload: dict[str, Any]) -> list[dict[str, Any]]:
+def toggle_all_detection(request: Request, payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Toggle detection on/off for all enabled cameras."""
     active = bool(payload.get("active", True))
     return request.app.state.runtime.toggle_all_detection(active)
 
 
 @router.get("/alerts/{cam_id}")
-async def get_alerts(
+def get_alerts(
     request: Request,
     cam_id: str,
     limit: int = Query(50, ge=1, le=200),
@@ -197,7 +217,7 @@ async def get_alerts(
 
 
 @router.get("/behavior-events")
-async def list_behavior_events(
+def list_behavior_events(
     request: Request,
     limit: int = Query(100, ge=1, le=500),
     unlabeled_only: bool = False,
@@ -207,7 +227,7 @@ async def list_behavior_events(
 
 
 @router.post("/behavior-events/{event_id}/label")
-async def label_behavior_event(
+def label_behavior_event(
     request: Request,
     event_id: str,
     payload: BehaviorEventLabelPayload,

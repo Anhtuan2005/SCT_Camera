@@ -13,7 +13,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 
 
 
 @router.get("/", response_class=HTMLResponse)
-async def dashboard_page(request: Request) -> HTMLResponse:
+def dashboard_page(request: Request) -> HTMLResponse:
     """Render the multi-camera dashboard."""
     runtime = request.app.state.runtime
     return templates.TemplateResponse(
@@ -23,7 +23,7 @@ async def dashboard_page(request: Request) -> HTMLResponse:
 
 
 @router.get("/camera/{cam_id}", response_class=HTMLResponse)
-async def camera_detail_page(request: Request, cam_id: str) -> HTMLResponse:
+def camera_detail_page(request: Request, cam_id: str) -> HTMLResponse:
     """Render a single camera detail page with editors."""
     runtime = request.app.state.runtime
     camera = runtime.get_camera(cam_id)
@@ -36,7 +36,7 @@ async def camera_detail_page(request: Request, cam_id: str) -> HTMLResponse:
 
 
 @router.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request) -> HTMLResponse:
+def settings_page(request: Request) -> HTMLResponse:
     """Render global settings and camera management."""
     runtime = request.app.state.runtime
     return templates.TemplateResponse(

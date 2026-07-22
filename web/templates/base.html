@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}SCT Camera{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=security-console-8">
+  <link rel="stylesheet" href="/static/css/style.css?v=security-console-12">
 </head>
 <body data-page="{{ page_id | default('dashboard') }}">
   <div class="app-shell">
@@ -23,7 +23,7 @@
         </a>
         <a class="{% if page_id == 'settings' %}active{% endif %}" href="/settings">
           <span class="nav-icon">02</span>
-          Control Room
+          Configuration
         </a>
       </nav>
       <div class="nav-footer">
@@ -53,7 +53,7 @@
   </div>
 
   <div id="toastStack" class="toast-stack" aria-live="polite"></div>
-  <script src="/static/js/main.js?v=security-console-9"></script>
+  <script src="/static/js/main.js?v=security-console-14"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

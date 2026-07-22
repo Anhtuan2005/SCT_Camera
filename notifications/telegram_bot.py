@@ -106,7 +106,15 @@ class TelegramBot:
         return False
 
     def _build_caption(self, alert: dict[str, Any]) -> str:
-        alert_type = str(alert.get("type", "alert")).replace("_", " ").upper()
+        fallback_title = str(alert.get("type", "alert")).replace("_", " ").upper()
+        title = self._escape(str(alert.get("title") or fallback_title))
+        severity = str(alert.get("severity", "warning")).strip().lower()
+        icon = {
+            "emergency": "🆘",
+            "critical": "🚨",
+            "warning": "⚠️",
+            "info": "✅",
+        }.get(severity, "🚨")
         camera_name = self._escape(str(alert.get("camera_name", alert.get("camera_id", "Camera"))))
         class_name = str(alert.get("class_name", "object"))
         identity_label = str(alert.get("identity_label", "")).strip()
@@ -124,14 +132,17 @@ class TelegramBot:
             )
         )
         details = self._escape(str(alert.get("details", "")))
+        action = self._escape(str(alert.get("recommended_action", "")).strip())
+        action_line = f"☎️ Hành động: {action}\n" if action else ""
 
         return (
             "──────────────────\n"
-            f"🚨 **[{alert_type}]** — {camera_name}\n"
+            f"{icon} *[{title}]* — {camera_name}\n"
             f"📅 Time: {timestamp}\n"
             f"🎯 Object: {class_name} (Track #{track_id})\n"
             f"📍 Zone/Line: {place}\n"
             f"📊 Details: {details}\n"
+            f"{action_line}"
             "──────────────────"
         )
 

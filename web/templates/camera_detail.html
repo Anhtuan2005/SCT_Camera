@@ -14,17 +14,27 @@
   <section class="detail-layout" data-camera-id="{{ camera.camera_id }}">
     <div class="detail-primary">
       <div class="detail-toolbar">
-        <span class="status-badge {{ camera.status }}" data-detail-status>{{ camera.status }}</span>
-        <span class="toolbar-stat"><strong data-detail-objects>{{ camera.object_count }}</strong> objects</span>
-        <span class="toolbar-stat"><strong data-detail-fps>{{ camera.fps | default(0.0) }}</strong> fps</span>
-        <span class="toolbar-stat"><strong data-detail-ai-latency>{{ camera.ai_latency_ms | default(0) }} ms</strong> AI</span>
-        <span class="toolbar-stat"><strong data-detail-alerts>{{ camera.alert_count }}</strong> alerts</span>
+        <div class="detail-metrics">
+          <span class="status-badge {{ camera.status }}" data-detail-status>{{ camera.status }}</span>
+          <span class="toolbar-stat"><strong data-detail-objects>{{ camera.object_count }}</strong> objects</span>
+          <span class="toolbar-stat"><strong data-detail-capture-fps>{{ camera.capture_fps | default(0.0) }}</strong> capture fps</span>
+          <span class="toolbar-stat"><strong data-detail-fps>{{ camera.fps | default(0.0) }}</strong> stream fps</span>
+          <span class="toolbar-stat"><strong data-detail-ai-fps>{{ camera.ai_fps | default(0.0) }}</strong> AI fps</span>
+          <span class="toolbar-stat"><strong data-detail-ai-latency>{{ camera.ai_latency_ms | default(0) }} ms</strong> AI</span>
+          <span class="toolbar-stat"><strong data-detail-alerts>{{ camera.alert_count }}</strong> alerts</span>
+        </div>
         <div class="camera-state-toggle-group">
           <button class="camera-switch camera-state-toggle{% if camera.enabled %} active{% endif %}" type="button" id="detailEnabledToggleLabel" data-camera-id="{{ camera.camera_id }}" data-camera-enabled-toggle="{{ camera.camera_id }}" role="switch" aria-checked="{{ 'true' if camera.enabled else 'false' }}">
             <span class="switch-control">
               <span class="switch-track"></span>
             </span>
             <span id="detailEnabledToggleText">{{ "Online" if camera.enabled else "Offline" }}</span>
+          </button>
+          <button class="camera-switch camera-state-toggle{% if camera.show_theft_overlay %} active{% endif %}" type="button" id="detailTheftOverlayToggle" data-camera-id="{{ camera.camera_id }}" role="switch" aria-checked="{{ 'true' if camera.show_theft_overlay else 'false' }}">
+            <span class="switch-control">
+              <span class="switch-track"></span>
+            </span>
+            <span id="detailTheftOverlayToggleText">Theft overlay {{ "On" if camera.show_theft_overlay else "Off" }}</span>
           </button>
         </div>
       </div>

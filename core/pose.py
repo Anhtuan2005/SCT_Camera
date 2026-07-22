@@ -78,16 +78,7 @@ class PoseEstimator:
         if not self._ensure_model():
             return objects
 
-        assert self.model is not None
-        with self.inference_lock:
-            results = self.model.predict(
-                frame_bgr,
-                conf=self.confidence,
-                device=self.device,
-                half=self.use_half and self.device.startswith("cuda"),
-                imgsz=self.imgsz,
-                verbose=False,
-            )
+        results = self._predict(frame_bgr)
         if not results:
             return objects
 
@@ -112,6 +103,23 @@ class PoseEstimator:
             used_pose_indexes.add(pose_index)
             attached.append(replace(obj, pose_keypoints=self._clean_keypoints(raw_keypoints[pose_index])))
         return attached
+
+    def warmup(self, frame_bgr: np.ndarray) -> None:
+        """Load the pose model and run its one-time backend initialization."""
+        if self.enabled and self._ensure_model():
+            self._predict(frame_bgr)
+
+    def _predict(self, frame_bgr: np.ndarray) -> Any:
+        assert self.model is not None
+        with self.inference_lock:
+            return self.model.predict(
+                frame_bgr,
+                conf=self.confidence,
+                device=self.device,
+                half=self.use_half and self.device.startswith("cuda"),
+                imgsz=self.imgsz,
+                verbose=False,
+            )
 
     def _ensure_model(self) -> bool:
         if self.model is not None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from analytics.pose_classifier import PoseClassifier
 from core.tracker import TrackedObject
@@ -122,6 +123,24 @@ class PoseClassifierTests(unittest.TestCase):
 
         self.assertEqual("sitting", objects[0].pose_label)
 
+    def test_keeps_compact_upper_body_only_pose_as_sitting(self) -> None:
+        keypoints = _keypoints(
+            shoulder_x=20.0,
+            shoulder_y=20.0,
+            hip_x=33.0,
+            hip_y=60.0,
+        )
+        for index in (13, 14, 15, 16):
+            keypoints[index] = (0.0, 0.0, 0.0)
+
+        objects = self.classifier.label_objects(
+            "cam",
+            [_person((0.0, 0.0, 100.0, 110.0), keypoints=keypoints)],
+            self.frame_shape,
+        )
+
+        self.assertEqual("sitting", objects[0].pose_label)
+
     def test_labels_lying_from_body_axis_angle(self) -> None:
         objects = self.classifier.label_objects(
             "cam",
@@ -164,6 +183,75 @@ class PoseClassifierTests(unittest.TestCase):
 
         self.assertEqual("lying", objects[0].pose_label)
 
+    def test_labels_lying_from_floor_view_compact_straight_pose(self) -> None:
+        objects = self.classifier.label_objects(
+            "cam",
+            [
+                _person(
+                    (0.0, 0.0, 100.0, 119.0),
+                    keypoints=_keypoints(
+                        shoulder_x=20.0,
+                        shoulder_y=20.0,
+                        hip_x=33.0,
+                        hip_y=60.0,
+                        knee_x=45.0,
+                        knee_y=90.0,
+                        ankle_x=57.0,
+                        ankle_y=118.0,
+                    ),
+                )
+            ],
+            self.frame_shape,
+        )
+
+        self.assertEqual("lying", objects[0].pose_label)
+
+    def test_labels_lying_from_floor_view_reclined_pose(self) -> None:
+        objects = self.classifier.label_objects(
+            "cam",
+            [
+                _person(
+                    (0.0, 0.0, 100.0, 115.0),
+                    keypoints=_keypoints(
+                        shoulder_x=20.0,
+                        shoulder_y=20.0,
+                        hip_x=40.0,
+                        hip_y=60.0,
+                        knee_x=55.0,
+                        knee_y=85.0,
+                        ankle_x=55.0,
+                        ankle_y=115.0,
+                    ),
+                )
+            ],
+            self.frame_shape,
+        )
+
+        self.assertEqual("lying", objects[0].pose_label)
+
+    def test_labels_lying_from_wide_bbox_when_torso_keypoints_are_vertical(self) -> None:
+        objects = self.classifier.label_objects(
+            "cam",
+            [
+                _person(
+                    (0.0, 20.0, 200.0, 164.0),
+                    keypoints=_keypoints(
+                        shoulder_x=80.0,
+                        shoulder_y=30.0,
+                        hip_x=85.0,
+                        hip_y=70.0,
+                        knee_x=120.0,
+                        knee_y=110.0,
+                        ankle_x=100.0,
+                        ankle_y=150.0,
+                    ),
+                )
+            ],
+            self.frame_shape,
+        )
+
+        self.assertEqual("lying", objects[0].pose_label)
+
     def test_labels_unknown_without_required_keypoints(self) -> None:
         objects = self.classifier.label_objects(
             "cam",
@@ -172,6 +260,87 @@ class PoseClassifierTests(unittest.TestCase):
         )
 
         self.assertEqual("unknown", objects[0].pose_label)
+
+    def test_inserts_named_states_between_posture_families(self) -> None:
+        sitting_person = _person(
+            (25.0, 0.0, 85.0, 100.0),
+            keypoints=_keypoints(shoulder_y=20.0, hip_y=60.0, knee_y=70.0),
+        )
+        upright_person = _person(
+            (40.0, 0.0, 80.0, 100.0),
+            keypoints=_keypoints(),
+        )
+
+        with patch("analytics.pose_classifier.time.monotonic", return_value=0.0):
+            sitting = self.classifier.label_objects(
+                "getting-up", [sitting_person], self.frame_shape
+            )
+        with patch("analytics.pose_classifier.time.monotonic", return_value=0.1):
+            getting_up = self.classifier.label_objects(
+                "getting-up", [upright_person], self.frame_shape
+            )
+        with patch("analytics.pose_classifier.time.monotonic", return_value=0.9):
+            standing = self.classifier.label_objects(
+                "getting-up", [upright_person], self.frame_shape
+            )
+
+        with patch("analytics.pose_classifier.time.monotonic", return_value=0.0):
+            self.classifier.label_objects(
+                "sitting-down", [upright_person], self.frame_shape
+            )
+        with patch("analytics.pose_classifier.time.monotonic", return_value=0.1):
+            sitting_down = self.classifier.label_objects(
+                "sitting-down", [sitting_person], self.frame_shape
+            )
+
+        lying_person = _person(
+            (0.0, 20.0, 160.0, 100.0),
+            keypoints=_keypoints(
+                shoulder_x=20.0,
+                shoulder_y=50.0,
+                hip_x=100.0,
+                hip_y=60.0,
+                knee_x=130.0,
+                knee_y=70.0,
+            ),
+        )
+        with patch("analytics.pose_classifier.time.monotonic", return_value=0.0):
+            self.classifier.label_objects(
+                "changing-posture", [upright_person], self.frame_shape
+            )
+        with patch("analytics.pose_classifier.time.monotonic", return_value=0.1):
+            changing_to_lying = self.classifier.label_objects(
+                "changing-posture", [lying_person], self.frame_shape
+            )
+
+        self.assertEqual("sitting", sitting[0].pose_label)
+        self.assertEqual("getting_up", getting_up[0].pose_label)
+        self.assertEqual("standing_still", standing[0].pose_label)
+        self.assertEqual("sitting_down", sitting_down[0].pose_label)
+        self.assertEqual("changing_to_lying", changing_to_lying[0].pose_label)
+
+    def test_motion_change_within_upright_family_has_no_posture_transition(self) -> None:
+        standing = _person(
+            (40.0, 0.0, 80.0, 100.0),
+            keypoints=_keypoints(),
+            track_id=30,
+        )
+        walking = _person(
+            (40.0, 0.0, 80.0, 100.0),
+            history=[(60.0 + i * 8.0, 50.0) for i in range(6)],
+            keypoints=_keypoints(),
+            track_id=30,
+        )
+
+        with patch("analytics.pose_classifier.time.monotonic", return_value=0.0):
+            self.classifier.label_objects("cam", [standing], self.frame_shape)
+        for now in (0.1, 0.2, 0.3):
+            with patch("analytics.pose_classifier.time.monotonic", return_value=now):
+                result = self.classifier.label_objects(
+                    "cam", [walking], self.frame_shape
+                )
+
+        self.assertEqual("walking_slow", result[0].pose_label)
 
 
 if __name__ == "__main__":

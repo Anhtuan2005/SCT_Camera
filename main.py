@@ -17,6 +17,7 @@ os.environ.setdefault(
 )
 
 import uvicorn
+import torch
 
 from utils.logger import get_logger, setup_logging
 from web.app import RuntimeState, create_app, load_camera_configs, load_settings
@@ -49,6 +50,8 @@ def _dashboard_urls(host: str, port: int) -> list[str]:
 
 def main() -> None:
     """Load configuration, build the FastAPI app, and run Uvicorn."""
+    torch.set_num_threads(min(4, os.cpu_count() or 1))
+
     project_root = Path(__file__).resolve().parent
     settings_path = project_root / "config" / "settings.yaml"
     cameras_dir = project_root / "config" / "cameras"

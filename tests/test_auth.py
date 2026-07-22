@@ -66,6 +66,27 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(200, cameras.status_code)
         self.assertEqual([], cameras.json())
 
+    def test_dashboard_camera_link_stops_streams_before_navigation(self) -> None:
+        runtime = _Runtime()
+        runtime.list_cameras = lambda: [
+            {
+                "camera_id": "cam1",
+                "name": "Camera 1",
+                "enabled": True,
+                "status": "online",
+                "object_count": 0,
+                "fps": 0,
+                "ai_latency_ms": 0,
+                "alert_count": 0,
+            }
+        ]
+        client = TestClient(create_app(runtime))
+        client.post("/login", data={"username": "admin", "password": "secret", "next": "/"})
+
+        response = client.get("/")
+
+        self.assertIn('href="/camera/cam1" onclick="window.stop()"', response.text)
+
     def test_health_check_remains_public(self) -> None:
         client = TestClient(create_app(_Runtime()))
 

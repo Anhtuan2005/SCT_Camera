@@ -1,5 +1,7 @@
 import asyncio
 from datetime import datetime
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -9,6 +11,7 @@ from analytics.loitering import LoiteringDetector
 from analytics.suspicious_stranger import SuspiciousStrangerDetector
 from analytics.unknown_person import UnknownPersonDetector
 from analytics.zone import Zone
+from core.database import DatabaseManager
 from core.tracker import TrackedObject
 from notifications.alert_manager import AlertManager
 
@@ -230,10 +233,44 @@ class PersonAlertTests(unittest.TestCase):
             await manager._handle_alert(intrusion_alert)
 
             recent = manager.get_recent("cam")
-            self.assertEqual(1, len(recent))
+            self.assertEqual(2, len(recent))
             self.assertFalse(recent[0]["suppressed"])
+            self.assertTrue(recent[1]["suppressed"])
 
         asyncio.run(run_case())
+
+    def test_alert_manager_persists_sent_and_suppressed_alerts(self) -> None:
+        async def run_case(db_path: Path) -> None:
+            database = DatabaseManager(db_path)
+            database.run_migrations()
+            manager = AlertManager(
+                {"telegram": {"cooldown_seconds": 60}},
+                database=database,
+            )
+            manager.bot = FakeAlertSender()
+            manager.discord = FakeAlertSender()
+            manager.siren = FakeSiren()
+            alert = {
+                "camera_id": "cam",
+                "camera_name": "Camera",
+                "type": "stranger_detected",
+                "track_id": 1,
+                "zone_id": "__global_stranger_watch__",
+                "zone_name": "Full Frame",
+                "notification_channels": ["telegram"],
+                "timestamp": "2026-07-15 12:30:00",
+            }
+
+            await manager._handle_alert(alert)
+            await manager._handle_alert({**alert, "track_id": 2})
+
+            recent = manager.get_recent("cam")
+            self.assertEqual(2, len(recent))
+            self.assertTrue(recent[0]["suppressed"])
+            self.assertFalse(recent[1]["suppressed"])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asyncio.run(run_case(Path(temp_dir) / "sct_camera.db"))
 
     def test_behavior_engine_emits_stranger_alert_without_zones(self) -> None:
         engine = BehaviorEngine(

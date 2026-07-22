@@ -381,13 +381,13 @@ class PersonIdentityTests(unittest.TestCase):
 
         self.assertEqual(PENDING_PERSON_KIND, labeled[0].identity_kind)
 
-    def test_pending_person_retries_without_waiting_recognition_interval(self) -> None:
+    def test_pending_person_respects_recognition_interval(self) -> None:
         resolver = PersonIdentityResolver(
             {
                 "identity": {
                     "enabled": True,
                     "known_persons": [],
-                    "recognition_interval_frames": 99,
+                    "recognition_interval_frames": 3,
                     "unknown_confirmation_attempts": 2,
                     "orientations_per_attempt": 1,
                 }
@@ -406,9 +406,15 @@ class PersonIdentityTests(unittest.TestCase):
 
         first = resolver.label_objects("cam", [_person(14)], frame)
         second = resolver.label_objects("cam", [_person(14)], frame)
+        third = resolver.label_objects("cam", [_person(14)], frame)
 
         self.assertEqual(PENDING_PERSON_KIND, first[0].identity_kind)
         self.assertEqual(PENDING_PERSON_KIND, second[0].identity_kind)
+        self.assertEqual(PENDING_PERSON_KIND, third[0].identity_kind)
+        self.assertEqual(1, analyzer.calls)
+
+        resolver.label_objects("cam", [_person(14)], frame)
+
         self.assertEqual(2, analyzer.calls)
 
     def test_reference_images_can_use_different_orientations_than_live_stream(self) -> None:

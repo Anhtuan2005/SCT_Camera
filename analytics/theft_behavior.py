@@ -141,6 +141,7 @@ class SuspiciousTheftDetector:
             return None
         vehicle_signature = (camera_id, zone.id, vehicle.class_name)
         if vehicle_signature in self._alerted_vehicle_signatures:
+            state.alerted = True
             return None
 
         state.alerted = True
@@ -173,6 +174,40 @@ class SuspiciousTheftDetector:
             "siren": True,
             "details": details,
         }
+
+    def get_active_states(self, camera_id: str) -> list[dict[str, Any]]:
+        """Return live theft-scoring progress for recently seen person-vehicle pairs."""
+        now = time.monotonic()
+        states: list[dict[str, Any]] = []
+        for (pair_camera_id, zone_id, person_id, vehicle_id), state in self._pairs.items():
+            if pair_camera_id != camera_id:
+                continue
+            if now - state.last_seen > self.near_gap_reset_seconds:
+                continue
+            states.append(
+                {
+                    "zone_id": zone_id,
+                    "person_track_id": person_id,
+                    "vehicle_track_id": vehicle_id,
+                    "near_seconds": round(max(0.0, now - state.first_near), 1),
+                    "near_threshold": self.proximity_seconds,
+                    "pacing_passes": state.pass_count,
+                    "pacing_threshold": self.pacing_min_passes,
+                    "behaviors": sorted(state.latest_behaviors),
+                    "score": len(state.latest_behaviors),
+                    "score_threshold": self.score_threshold,
+                    "alerted": state.alerted,
+                }
+            )
+        return sorted(
+            states,
+            key=lambda item: (
+                bool(item["alerted"]),
+                int(item["score"]),
+                float(item["near_seconds"]),
+            ),
+            reverse=True,
+        )
 
     def _state_for(
         self,

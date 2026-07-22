@@ -6,7 +6,7 @@ Camera(s) -> YOLOv11 Detection -> ByteTrack Tracking -> Behavior Analysis -> Tel
 
 ## Tính năng chính
 
-- YOLOv11 qua `ultralytics`, model mặc định `yolo11n.pt`.
+- YOLOv11 qua `ultralytics`, model mặc định `yolo11s.pt`.
 - ByteTrack của Ultralytics với tracker state riêng cho từng camera.
 - Camera motion compensation (CMC) bằng sparse optical flow để ổn định tracking khi camera rung/pan nhẹ.
 - Multi-camera pipeline, mỗi camera chạy trên một thread riêng.
@@ -57,7 +57,7 @@ config/settings.yaml
 Các mục quan trọng:
 
 - `telegram.chat_id`: điền group chat ID, thường có dạng số âm như `-1001234567890`.
-- `detection.model`: `yolo11n.pt` nhanh hơn và đang dùng cho RTSP realtime; `yolo11s.pt` chính xác hơn nhưng chậm hơn.
+- `detection.model`: mặc định dùng `yolo11s.pt` để nhận diện tốt hơn; `yolo11n.pt` nhanh hơn nhưng dễ bỏ sót vật thể ở camera góc rộng.
 - `detection.device`: dùng `cuda:0` nếu CUDA hoạt động, hoặc `cpu`.
 - `detection.person_max_aspect_ratio`: bỏ bbox `person` quá mảnh/dài, giúp giảm rèm/cột bị nhận nhầm.
 - `pipeline.frame_skip`: tăng lên để giảm tải GPU.
@@ -165,10 +165,11 @@ python main.py
 
 Vào `http://localhost:8000/camera/cam_01`. Mặc định `cam_01` dùng source `0`. Nếu máy không có webcam, đổi `config/cameras/cam_01.yaml` sang file video hoặc RTSP URL.
 
-YOLO model sẽ tự tải lần đầu từ Ultralytics hub. Nếu môi trường không có Internet, đặt sẵn file `yolo11n.pt` trong thư mục project hoặc đổi `detection.model` sang đường dẫn model local.
+YOLO model sẽ tự tải lần đầu từ Ultralytics hub. Nếu môi trường không có Internet, đặt sẵn file `yolo11s.pt` trong thư mục project hoặc đổi `detection.model` sang đường dẫn model local.
 
 ## Ghi chú vận hành
 
+- Alert history và notification delivery được lưu bền vững trong SQLite tại `data/sct_camera.db`; app tự chạy migrations khi startup.
 - Telegram token được đọc từ `config/settings.yaml`, không hardcode trong Python.
 - Dashboard có session login; đổi password mặc định trước khi demo hoặc expose ra mạng.
 - RTSP URL có username/password được truyền trực tiếp cho OpenCV.

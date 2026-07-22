@@ -130,7 +130,11 @@ class BehaviorLearningService:
             if risk_score is not None:
                 alert["behavior_risk_score"] = round(risk_score, 4)
                 alert["behavior_model_path"] = str(self.model_path)
-                if self.gate_alerts and risk_score < self.min_risk_score:
+                if (
+                    self.gate_alerts
+                    and not alert.get("safety_critical")
+                    and risk_score < self.min_risk_score
+                ):
                     alert["behavior_suppressed"] = True
                     alert["behavior_suppression_reason"] = (
                         f"risk_score {risk_score:.3f} below {self.min_risk_score:.3f}"

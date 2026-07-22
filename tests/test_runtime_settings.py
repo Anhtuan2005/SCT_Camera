@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 from pathlib import Path
 from threading import RLock
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from tempfile import TemporaryDirectory
 
 from analytics.behavior_engine import BehaviorEngine
@@ -18,6 +19,43 @@ from web.app import (
 
 
 class RuntimeSettingsTests(unittest.TestCase):
+    def test_runtime_start_runs_database_migrations_before_alert_worker(self) -> None:
+        runtime = RuntimeState.__new__(RuntimeState)
+        runtime.database = MagicMock()
+        runtime.database.run_migrations.return_value = [1, 2, 3]
+        runtime.alert_manager = MagicMock()
+        runtime.alert_manager.start = AsyncMock()
+        runtime._lock = RLock()
+        runtime.cameras = {}
+
+        asyncio.run(runtime.start())
+
+        runtime.database.run_migrations.assert_called_once_with()
+        runtime.alert_manager.start.assert_awaited_once_with()
+
+    @patch("web.app.PoseEstimator")
+    @patch("web.app.YOLOv11Detector")
+    def test_runtime_uses_default_database_path(self, detector_cls, _pose_cls) -> None:
+        detector_cls.return_value.inference_lock = RLock()
+        detector_cls.return_value.device = "cpu"
+        detector_cls.return_value.use_half = False
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings_path = root / "config" / "settings.yaml"
+            cameras_dir = root / "config" / "cameras"
+            runtime = RuntimeState(
+                settings={
+                    "identity": {"enabled": False},
+                    "behavior_learning": {"enabled": False},
+                },
+                cameras={},
+                settings_path=settings_path,
+                cameras_dir=cameras_dir,
+            )
+
+            self.assertEqual(root / "data" / "sct_camera.db", runtime.database.db_path)
+            self.assertIs(runtime.database, runtime.alert_manager.database)
+
     def test_pose_can_be_disabled(self) -> None:
         settings = _enforce_required_runtime_settings(
             {"pose": {"enabled": False, "allow_download": False}}
@@ -131,6 +169,29 @@ class RuntimeSettingsTests(unittest.TestCase):
         runtime._save_camera_config.assert_called_once()
         runtime._restart_pipeline.assert_called_once()
 
+    def test_theft_overlay_toggle_persists_and_syncs_without_restart(self) -> None:
+        runtime = RuntimeState.__new__(RuntimeState)
+        runtime._lock = RLock()
+        runtime.cameras = {
+            "cam": {
+                "camera_id": "cam",
+                "name": "Camera",
+                "source": 0,
+                "show_theft_overlay": False,
+            }
+        }
+        runtime.frame_buffers = {}
+        runtime.settings = {"pipeline": {}}
+        runtime._public_camera = MagicMock(side_effect=lambda config: config)
+        runtime._save_camera_config = MagicMock()
+        runtime._sync_pipeline_config = MagicMock()
+
+        saved = runtime.set_camera_theft_overlay("cam", True)
+
+        self.assertTrue(saved["show_theft_overlay"])
+        runtime._save_camera_config.assert_called_once()
+        runtime._sync_pipeline_config.assert_called_once_with("cam")
+
     def test_zone_update_preserves_dwell_policy_fields(self) -> None:
         runtime = RuntimeState.__new__(RuntimeState)
         runtime._lock = RLock()
@@ -216,7 +277,7 @@ class RuntimeSettingsTests(unittest.TestCase):
         second_pipeline.start.assert_called_once()
 
     def test_default_profile_is_realtime_optimized(self) -> None:
-        self.assertEqual("yolo11n.pt", MAX_QUALITY_RUNTIME_SETTINGS["detection"]["model"])
+        self.assertEqual("yolo11s.pt", MAX_QUALITY_RUNTIME_SETTINGS["detection"]["model"])
         self.assertEqual(640, MAX_QUALITY_RUNTIME_SETTINGS["detection"]["imgsz"])
         self.assertEqual("yolo11n-pose.pt", MAX_QUALITY_RUNTIME_SETTINGS["pose"]["model"])
         self.assertEqual(640, MAX_QUALITY_RUNTIME_SETTINGS["pose"]["imgsz"])
@@ -241,6 +302,11 @@ class RuntimeSettingsTests(unittest.TestCase):
             0.35,
             MAX_QUALITY_RUNTIME_SETTINGS["detection"]["class_confidences"]["person"],
         )
+        self.assertEqual(
+            0.20,
+            MAX_QUALITY_RUNTIME_SETTINGS["detection"]["class_confidences"]["laptop"],
+        )
+        self.assertIn(63, MAX_QUALITY_RUNTIME_SETTINGS["detection"]["classes"])
         self.assertEqual(4.5, MAX_QUALITY_RUNTIME_SETTINGS["detection"]["person_max_aspect_ratio"])
         self.assertEqual(3000, MAX_QUALITY_RUNTIME_SETTINGS["detection"]["person_min_bbox_area"])
         self.assertEqual(0.25, MAX_QUALITY_RUNTIME_SETTINGS["pose"]["match_iou"])

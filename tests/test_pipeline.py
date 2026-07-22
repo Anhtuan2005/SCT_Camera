@@ -1,9 +1,14 @@
 import unittest
 from dataclasses import replace
+from queue import Queue
 from threading import Condition, Event, RLock, get_ident
+from time import monotonic, sleep
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
+import core.pipeline as pipeline_module
 from core.pipeline import (
     CameraPipeline,
     _AnalysisSnapshot,
@@ -13,6 +18,85 @@ from core.tracker import TrackedObject
 
 
 class PipelineCadenceTests(unittest.TestCase):
+    def test_analysis_worker_warmup_uses_live_frame_shape(self) -> None:
+        pipeline = CameraPipeline.__new__(CameraPipeline)
+        pipeline.detector = MagicMock()
+        pipeline.pose_estimator = MagicMock()
+        pipeline._get_pipeline_params = lambda: {"processing_max_height": 720}
+        pipeline._get_config = lambda: {"frame_rotation": "cw90"}
+
+        pipeline._warmup_analysis_models()
+
+        warmed_frame = pipeline.detector.detect.call_args_list[0].args[0]
+        self.assertEqual((720, 405, 3), warmed_frame.shape)
+        self.assertEqual(2, pipeline.detector.detect.call_count)
+        self.assertEqual(2, pipeline.pose_estimator.warmup.call_count)
+
+    def test_live_capture_keeps_only_the_latest_frame(self) -> None:
+        class Capture:
+            def __init__(self) -> None:
+                self.frames: Queue[np.ndarray | None] = Queue()
+                self.read_count = 0
+
+            def read(self):
+                frame = self.frames.get(timeout=1.0)
+                if frame is None:
+                    return False, None
+                self.read_count += 1
+                return True, frame
+
+            def release(self) -> None:
+                self.frames.put(None)
+
+        capture = Capture()
+        reader = pipeline_module._LatestFrameCapture(capture, Event())
+        reader.start()
+        try:
+            for value in (1, 2, 3):
+                capture.frames.put(np.full((1, 1, 3), value, dtype=np.uint8))
+
+            deadline = monotonic() + 1.0
+            while capture.read_count < 3 and monotonic() < deadline:
+                sleep(0.005)
+
+            latest = reader.read_latest(last_sequence=0, timeout=0.1)
+
+            self.assertIsNotNone(latest)
+            assert latest is not None
+            self.assertEqual(3, latest.sequence)
+            self.assertEqual(3, int(latest.frame[0, 0, 0]))
+            self.assertEqual(2, latest.dropped_frames)
+        finally:
+            capture.frames.put(None)
+            reader.stop()
+
+    def test_run_redacts_rtsp_credentials_from_logs(self) -> None:
+        class ClosedCapture:
+            def isOpened(self) -> bool:
+                return False
+
+        pipeline = CameraPipeline.__new__(CameraPipeline)
+        pipeline._stop_event = Event()
+        pipeline.frame_buffer = SimpleNamespace(set_status=lambda *_args, **_kwargs: None)
+        pipeline._get_config = lambda: {
+            "camera_id": "cam",
+            "name": "Camera",
+            "source": "rtsp://alice:top-secret@192.0.2.10/live",
+        }
+        pipeline._get_pipeline_params = lambda: {
+            "max_reconnect_attempts": 1,
+            "reconnect_delay": 0.0,
+        }
+        pipeline._open_capture = lambda _source: ClosedCapture()
+        pipeline._sleep_interruptible = lambda _seconds: pipeline._stop_event.set()
+
+        with patch("core.pipeline.logger.info") as log_info:
+            pipeline._run()
+
+        rendered_calls = " ".join(str(call) for call in log_info.call_args_list)
+        self.assertNotIn("alice:top-secret", rendered_calls)
+        self.assertIn("rtsp://***@192.0.2.10/live", rendered_calls)
+
     def test_analysis_due_respects_frame_skip_and_ai_max_fps(self) -> None:
         self.assertTrue(CameraPipeline._analysis_due(1, 1, 10, 100.0, 0.0))
         self.assertFalse(CameraPipeline._analysis_due(2, 3, 10, 100.2, 100.0))
@@ -22,45 +106,80 @@ class PipelineCadenceTests(unittest.TestCase):
     def test_analysis_due_allows_unlimited_ai_rate(self) -> None:
         self.assertTrue(CameraPipeline._analysis_due(5, 1, 0, 100.01, 100.0))
 
-    def test_run_analysis_sync_completes_before_returning(self) -> None:
+    def test_first_frame_uses_async_analysis_and_publishes_immediately(self) -> None:
+        class Capture:
+            def __init__(self, stop_event: Event) -> None:
+                self.stop_event = stop_event
+                self.read_count = 0
+
+            def isOpened(self) -> bool:
+                return True
+
+            def read(self):
+                self.read_count += 1
+                if self.read_count == 1:
+                    return True, np.zeros((4, 5, 3), dtype=np.uint8)
+                self.stop_event.set()
+                return False, None
+
+            def release(self) -> None:
+                return None
+
+        class Buffer:
+            def __init__(self) -> None:
+                self.frames = []
+
+            def set_status(self, *_args, **_kwargs) -> None:
+                return None
+
+            def update(self, frame, **_kwargs) -> None:
+                self.frames.append(frame)
+
         pipeline = CameraPipeline.__new__(CameraPipeline)
-        pipeline._analysis_state_lock = RLock()
-        pipeline._analysis_inflight = False
-        pipeline._last_analysis_started_at = 0.0
-        pipeline._analysis_token = 0
-        pipeline._analysis_generation = 0
-        calls = []
-
-        def analyze(frame, config, camera_id, token, generation, frame_capture_time, frame_index):
-            calls.append(
-                (
-                    frame.shape,
-                    config["camera_id"],
-                    camera_id,
-                    token,
-                    generation,
-                    frame_capture_time,
-                    frame_index,
-                )
-            )
-            with pipeline._analysis_state_lock:
-                if pipeline._analysis_token == token:
-                    pipeline._analysis_inflight = False
-
-        pipeline._analyze_frame = analyze
-
-        completed = pipeline._run_analysis_sync(
-            np.zeros((4, 5, 3), dtype=np.uint8),
-            {"camera_id": "cam"},
-            "cam",
-            42.0,
-            1,
+        pipeline._stop_event = Event()
+        pipeline.frame_buffer = Buffer()
+        pipeline.tracker = SimpleNamespace(reset=lambda: None)
+        pipeline._published_analysis_result_id = 0
+        pipeline._last_stale_warning_result_id = 0
+        pipeline._get_config = lambda: {"camera_id": "cam", "name": "Camera", "source": 0}
+        pipeline._get_pipeline_params = lambda: {
+            "frame_skip": 2,
+            "ai_max_fps": 10.0,
+            "analysis_timeout": 5.0,
+            "analysis_stale_after_ms": 500.0,
+            "reconnect_delay": 0.0,
+            "max_reconnect_attempts": 1,
+            "processing_max_height": 720,
+            "realtime_video_playback": True,
+            "loop_video_files": False,
+            "drop_late_video_frames": True,
+        }
+        pipeline._open_capture = lambda _source: Capture(pipeline._stop_event)
+        pipeline._reset_analysis_state = lambda: None
+        pipeline._run_analysis_sync = lambda *_args, **_kwargs: self.fail(
+            "first-frame AI must not block capture"
         )
+        submitted_frames = []
+        pipeline._submit_analysis_if_due = (
+            lambda _frame, _config, _camera_id, frame_index, _now, _params: submitted_frames.append(frame_index)
+        )
+        pipeline._analysis_snapshot = lambda: SimpleNamespace(
+            new_alert_count=0,
+            result_id=0,
+            frame_index=0,
+        )
+        pipeline._display_frame_for_snapshot = lambda frame, *_args: SimpleNamespace(
+            frame=frame,
+            object_count=0,
+            staleness_ms=0.0,
+            stale_warning=False,
+        )
+        pipeline._monitor_fps_health = lambda *_args: None
 
-        self.assertTrue(completed)
-        self.assertEqual([((4, 5, 3), "cam", "cam", 1, 0, 42.0, 1)], calls)
-        self.assertFalse(pipeline._analysis_inflight)
-        self.assertEqual(42.0, pipeline._last_analysis_started_at)
+        pipeline._run()
+
+        self.assertEqual([1], submitted_frames)
+        self.assertEqual(1, len(pipeline.frame_buffer.frames))
 
     def test_inflight_analysis_timeout_allows_new_analysis(self) -> None:
         pipeline = CameraPipeline.__new__(CameraPipeline)
@@ -169,18 +288,28 @@ class PipelineCadenceTests(unittest.TestCase):
         pipeline.analysis_timeout = 0.2
         pipeline._analyze_frame = lambda *args: None
 
-        submitted = pipeline._submit_analysis_if_due(
-            np.zeros((4, 5, 3), dtype=np.uint8),
-            {"camera_id": "cam"},
-            "cam",
-            2,
-            100.21,
-            {"frame_skip": 1, "ai_max_fps": 10, "analysis_timeout": 0.2},
-        )
+        with patch("core.pipeline.logger.warning") as warning:
+            submitted = pipeline._submit_analysis_if_due(
+                np.zeros((4, 5, 3), dtype=np.uint8),
+                {"camera_id": "cam"},
+                "cam",
+                2,
+                100.21,
+                {"frame_skip": 1, "ai_max_fps": 10, "analysis_timeout": 0.2},
+            )
+            pipeline._submit_analysis_if_due(
+                np.zeros((4, 5, 3), dtype=np.uint8),
+                {"camera_id": "cam"},
+                "cam",
+                2,
+                100.21,
+                {"frame_skip": 1, "ai_max_fps": 10, "analysis_timeout": 0.2},
+            )
 
         self.assertFalse(submitted)
         self.assertTrue(pipeline._analysis_inflight)
         self.assertEqual(0, pipeline._analysis_token)
+        self.assertEqual(1, warning.call_count)
 
     def test_display_frame_suppresses_stale_analysis_objects(self) -> None:
         current_frame = np.zeros((8, 8, 3), dtype=np.uint8)

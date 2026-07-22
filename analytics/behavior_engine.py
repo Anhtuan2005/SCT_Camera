@@ -183,6 +183,10 @@ class BehaviorEngine:
         """Return live ROI loitering timers keyed by track id."""
         return self.loitering.get_active_states(camera_id)
 
+    def get_theft_states(self, camera_id: str) -> list[dict[str, Any]]:
+        """Return current theft-scoring progress for active person-vehicle pairs."""
+        return self.theft_behavior.get_active_states(camera_id)
+
     def get_stranger_watch_states(self, camera_id: str) -> dict[int, dict[str, Any]]:
         """Return current stranger-watch timer states."""
         return self.suspicious_stranger.get_active_states(camera_id)

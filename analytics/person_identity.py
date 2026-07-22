@@ -176,7 +176,7 @@ class PersonIdentityResolver:
                 self._last_attempt_frame[key] = frame_number
                 if obj.track_id in matches:
                     self._failed_attempt_counts.pop(key, None)
-                else:
+                elif obj.track_id in assessed_track_ids:
                     self._failed_attempt_counts[key] = (
                         self._failed_attempt_counts.get(key, 0) + 1
                     )
@@ -267,16 +267,12 @@ class PersonIdentityResolver:
         frame_number: int,
     ) -> bool:
         return any(
-            self._track_cache.get((camera_id, obj.track_id), ("", "", None))[1]
-            == PENDING_PERSON_KIND
-            or (
-                frame_number
-                - self._last_attempt_frame.get(
-                    (camera_id, obj.track_id),
-                    -self.recognition_interval,
-                )
-                >= self.recognition_interval
+            frame_number
+            - self._last_attempt_frame.get(
+                (camera_id, obj.track_id),
+                -self.recognition_interval,
             )
+            >= self.recognition_interval
             for obj in objects
         )
 

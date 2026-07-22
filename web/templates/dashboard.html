@@ -46,8 +46,8 @@
     <section id="cameraGrid" class="camera-grid">
       {% for camera in cameras %}
       <article class="camera-card{% if camera.status == 'paused' %} paused{% endif %}{% if not camera.enabled %} disabled{% endif %}" data-camera-card="{{ camera.camera_id }}">
-        <a class="stream-link" href="/camera/{{ camera.camera_id }}">
-          <img class="stream-img" src="/api/stream/{{ camera.camera_id }}" alt="{{ camera.name }} live stream">
+        <a class="stream-link" href="/camera/{{ camera.camera_id }}" onclick="window.stop()">
+          <img class="stream-img" src="/api/{{ 'stream' if camera.enabled else 'snapshot' }}/{{ camera.camera_id }}" alt="{{ camera.name }} live stream">
         </a>
         <div class="camera-card-body">
           <div>
@@ -58,7 +58,9 @@
         </div>
         <div class="metric-row">
           <span><strong data-objects>{{ camera.object_count }}</strong> objects</span>
-          <span><strong data-fps>{{ camera.fps | default(0.0) }}</strong> fps</span>
+          <span><strong data-capture-fps>{{ camera.capture_fps | default(0.0) }}</strong> capture fps</span>
+          <span><strong data-fps>{{ camera.fps | default(0.0) }}</strong> stream fps</span>
+          <span><strong data-ai-fps>{{ camera.ai_fps | default(0.0) }}</strong> AI fps</span>
           <span><strong data-ai-latency>{{ camera.ai_latency_ms | default(0) }} ms</strong> AI</span>
           <span><strong data-alerts>{{ camera.alert_count }}</strong> alerts</span>
         </div>
@@ -77,7 +79,7 @@
   {% else %}
     <section class="empty-state">
       <h2>No cameras configured</h2>
-      <p>Add a webcam, video file, or RTSP source from Control Room.</p>
+      <p>Add a webcam, video file, or RTSP source from Configuration.</p>
       <a class="button primary" href="/settings">Add Camera</a>
     </section>
   {% endif %}

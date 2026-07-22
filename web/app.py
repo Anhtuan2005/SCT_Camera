@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import csv
 import json
@@ -18,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from analytics.behavior_engine import BehaviorEngine
+from core.database import DatabaseManager
 from core.detector import YOLOv11Detector
 from core.frame_buffer import FrameBuffer
 from core.pipeline import CameraPipeline
@@ -33,7 +35,7 @@ logger = get_logger(__name__)
 ALERT_CHANNELS = {"telegram", "discord"}
 MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
     "detection": {
-        "model": "yolo11n.pt",
+        "model": "yolo11s.pt",
         "confidence": 0.25,
         "class_confidences": {
             "backpack": 0.12,
@@ -43,12 +45,13 @@ MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
             "cat": 0.60,
             "dog": 0.60,
             "handbag": 0.12,
+            "laptop": 0.20,
             "motorcycle": 0.10,
             "person": 0.35,
             "suitcase": 0.12,
             "truck": 0.15,
         },
-        "classes": [0, 1, 2, 3, 5, 7, 24, 26, 28, 15, 16],
+        "classes": [0, 1, 2, 3, 5, 7, 24, 26, 28, 15, 16, 63],
         "device": "cuda:0",
         "half": True,
         "imgsz": 640,
@@ -200,7 +203,7 @@ def create_app(runtime: "RuntimeState") -> FastAPI:
     app.include_router(config_api.router)
 
     @app.get("/api/health")
-    async def health_check() -> dict[str, Any]:
+    def health_check() -> dict[str, Any]:
         """Return system health status for monitoring."""
         cameras = runtime.list_cameras()
         online = sum(1 for cam in cameras if cam.get("status") == "online")
@@ -229,6 +232,13 @@ class RuntimeState:
         self.settings_path = settings_path
         self.cameras_dir = cameras_dir
         self._lock = threading.RLock()
+        database_settings = self.settings.get("database", {})
+        if not isinstance(database_settings, dict):
+            database_settings = {}
+        database_path = Path(str(database_settings.get("path", "data/sct_camera.db")))
+        if not database_path.is_absolute():
+            database_path = self.settings_path.parent.parent / database_path
+        self.database = DatabaseManager(database_path)
 
         max_height = int(self.settings.get("pipeline", {}).get("stream_max_height", 720))
         self.frame_buffers = {
@@ -243,7 +253,7 @@ class RuntimeState:
         )
         self.behavior_engine = BehaviorEngine(self.settings)
         self.identity_resolver = self.behavior_engine.identity_resolver
-        self.alert_manager = AlertManager(self.settings)
+        self.alert_manager = AlertManager(self.settings, database=self.database)
         self.pipelines: dict[str, CameraPipeline] = {}
 
     def behavior_event_log_path(self) -> Path:
@@ -326,9 +336,15 @@ class RuntimeState:
 
     async def start(self) -> None:
         """Start alert manager and enabled camera pipelines."""
-        await self.alert_manager.start()
+        applied_migrations = await asyncio.to_thread(self.database.run_migrations)
+        logger.info(
+            "SQLite ready: path=%s applied_migrations=%s",
+            self.database.db_path,
+            applied_migrations,
+        )
         with self._lock:
             configs = list(self.cameras.values())
+        await self.alert_manager.start()
         for camera_config in configs:
             if bool(camera_config.get("enabled", False)):
                 self._restart_pipeline(camera_config)
@@ -439,6 +455,12 @@ class RuntimeState:
                         existing.get("vision_profile", "max_quality_realtime"),
                     )
                 ),
+                "show_theft_overlay": bool(
+                    payload.get(
+                        "show_theft_overlay",
+                        existing.get("show_theft_overlay", False),
+                    )
+                ),
                 "notification_channels": _normalize_notification_channels(
                     payload.get("notification_channels", existing.get("notification_channels"))
                 ),
@@ -466,6 +488,23 @@ class RuntimeState:
             self._save_camera_config(config)
 
         self._restart_pipeline(saved)
+        return self._public_camera(saved)
+
+    def set_camera_theft_overlay(
+        self,
+        camera_id: str,
+        enabled: bool,
+    ) -> dict[str, Any] | None:
+        """Persist and live-sync the per-camera theft overlay preference."""
+        with self._lock:
+            config = self.cameras.get(camera_id)
+            if config is None:
+                return None
+            config["show_theft_overlay"] = bool(enabled)
+            saved = copy.deepcopy(config)
+            self._save_camera_config(config)
+
+        self._sync_pipeline_config(camera_id)
         return self._public_camera(saved)
 
     def delete_camera(self, camera_id: str) -> bool:
@@ -637,6 +676,11 @@ class RuntimeState:
                     "updated_at": snapshot.updated_at,
                     "error": snapshot.error,
                     "fps": round(snapshot.fps, 1),
+                    "capture_fps": round(snapshot.capture_fps, 1),
+                    "ai_fps": round(snapshot.ai_fps, 1),
+                    "ai_status": "ready" if snapshot.ai_fps > 0 else "warming",
+                    "capture_to_publish_ms": round(snapshot.capture_to_publish_ms, 0),
+                    "dropped_capture_frames": snapshot.dropped_capture_frames,
                     "staleness_ms": round(snapshot.staleness_ms, 0),
                     "ai_latency_ms": round(snapshot.ai_latency_ms, 0),
                     "analysis_stale_after_ms": float(
@@ -652,6 +696,11 @@ class RuntimeState:
                     "alert_count": 0,
                     "error": None,
                     "fps": 0.0,
+                    "capture_fps": 0.0,
+                    "ai_fps": 0.0,
+                    "ai_status": "offline",
+                    "capture_to_publish_ms": 0.0,
+                    "dropped_capture_frames": 0,
                     "staleness_ms": 0.0,
                     "ai_latency_ms": 0.0,
                     "analysis_stale_after_ms": float(

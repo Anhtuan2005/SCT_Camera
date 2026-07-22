@@ -72,6 +72,44 @@ class DatabaseMigrationTests(unittest.TestCase):
             self.assertIsNone(table)
             self.assertEqual([], versions)
 
+    def test_persists_alert_with_notification_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "sct_camera.db"
+            manager = DatabaseManager(db_path)
+            manager.run_migrations()
+
+            manager.persist_alert(
+                {
+                    "event_id": "alert-1",
+                    "type": "intrusion",
+                    "camera_id": "cam",
+                    "camera_name": "Front Door",
+                    "track_id": 7,
+                    "zone_id": "porch",
+                    "zone_name": "Porch",
+                    "timestamp": "2026-07-15T12:30:00+07:00",
+                    "suppressed": False,
+                    "message": "Sent to Telegram",
+                },
+                [{"channel": "telegram", "status": "sent"}],
+            )
+
+            recent = manager.get_recent_alerts("cam")
+            with closing(sqlite3.connect(db_path)) as conn:
+                alert_row = conn.execute(
+                    "SELECT event_id, timestamp FROM alerts"
+                ).fetchone()
+                delivery_row = conn.execute(
+                    "SELECT channel, status, sent_at FROM notification_deliveries"
+                ).fetchone()
+
+            self.assertEqual("alert-1", recent[0]["event_id"])
+            self.assertEqual("Sent to Telegram", recent[0]["message"])
+            self.assertEqual("alert-1", alert_row[0])
+            self.assertGreater(alert_row[1], 0)
+            self.assertEqual(("telegram", "sent"), delivery_row[:2])
+            self.assertGreater(delivery_row[2], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

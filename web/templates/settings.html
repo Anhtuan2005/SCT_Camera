@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Control Room | SCT Camera{% endblock %}
+{% block title %}Configuration | SCT Camera{% endblock %}
 {% block eyebrow %}Runtime Configuration{% endblock %}
-{% block heading %}Control Room Settings{% endblock %}
+{% block heading %}System Configuration{% endblock %}
 
 {% block content %}
   {% set detection_classes = settings.detection.classes | default([0, 1]) %}
@@ -10,9 +10,10 @@
       <a href="#cameras">Cameras</a>
       <a href="#detection">Detection</a>
       <a href="#behavior">Behavior</a>
+      <a href="#pose">Pose</a>
+      <a href="#pipeline">Pipeline</a>
       <a href="#learning">Learning</a>
       <a href="#alerts">Alerts</a>
-      <a href="#pipeline">Pipeline</a>
     </aside>
 
     <div class="settings-content">
@@ -69,7 +70,7 @@
             <p class="section-kicker">Vision engine</p>
             <h2 id="detection">Detection</h2>
           </div>
-          <button class="button primary" type="submit">Save Detection</button>
+          <button class="button primary" type="submit">Save Configuration</button>
         </div>
         <div class="form-grid">
           <label>
@@ -112,6 +113,7 @@
             <label class="checkbox-row"><input name="classes" type="checkbox" value="28" {% if 28 in detection_classes %}checked{% endif %}>Suitcase</label>
             <label class="checkbox-row"><input name="classes" type="checkbox" value="15" {% if 15 in detection_classes %}checked{% endif %}>Cat</label>
             <label class="checkbox-row"><input name="classes" type="checkbox" value="16" {% if 16 in detection_classes %}checked{% endif %}>Dog</label>
+            <label class="checkbox-row"><input name="classes" type="checkbox" value="63" {% if 63 in detection_classes %}checked{% endif %}>Laptop</label>
           </div>
         </fieldset>
 
@@ -163,13 +165,21 @@
           </fieldset>
         </section>
 
-        <section class="subsection">
+        <section class="subsection" id="pose">
           <div class="subsection-heading">
-            <p class="section-kicker">Pose estimation</p>
-            <h2>Pose</h2>
+            <div>
+              <p class="section-kicker">Pose estimation</p>
+              <h2>Pose</h2>
+            </div>
+            <label class="toggle-label">
+              <span class="toggle-switch">
+                <input name="pose_enabled" type="checkbox" role="switch" aria-label="Enable pose estimation" {% if settings.pose.enabled | default(true) %}checked{% endif %}>
+                <span class="toggle-track" aria-hidden="true"></span>
+              </span>
+              <span>Enabled</span>
+            </label>
           </div>
           <div class="form-grid">
-            <label class="checkbox-row"><input name="pose_enabled" type="checkbox" {% if settings.pose.enabled | default(true) %}checked{% endif %}>Enabled</label>
             <label>
               Pose model
               <select name="pose_model">

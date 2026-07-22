@@ -28,12 +28,12 @@ class YOLOv11Detector:
 
     def __init__(self, settings: dict[str, Any]) -> None:
         detection_settings = settings.get("detection", {})
-        self.model_path = str(detection_settings.get("model", "yolo11n.pt"))
+        self.model_path = str(detection_settings.get("model", "yolo11s.pt"))
         self.confidence = float(detection_settings.get("confidence", 0.4))
         self.class_confidences = _parse_class_confidences(
             detection_settings.get("class_confidences", {})
         )
-        self.class_ids = [int(item) for item in detection_settings.get("classes", [0, 15, 16, 2, 3, 5, 7])]
+        self.class_ids = [int(item) for item in detection_settings.get("classes", [0, 15, 16, 2, 3, 5, 7, 63])]
         self.iou = float(detection_settings.get("iou", 0.5))
         self.person_max_aspect_ratio = float(
             detection_settings.get("person_max_aspect_ratio", 4.5)

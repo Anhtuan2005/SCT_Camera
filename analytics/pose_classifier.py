@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections import Counter, deque
 from dataclasses import dataclass, replace
 from math import atan2, degrees, hypot, pi
@@ -11,6 +12,8 @@ from typing import Any
 from core.tracker import TrackedObject
 
 logger = logging.getLogger(__name__)
+
+_UPRIGHT_LABELS = {"standing_still", "walking_slow", "running"}
 
 
 @dataclass
@@ -23,6 +26,9 @@ class _PoseTrackState:
     speed_history: deque[float]
     # The last confirmed motion label (for hysteresis).
     last_motion_label: str
+    confirmed_pose_family: str | None = None
+    transition_target_family: str | None = None
+    transition_started_at: float | None = None
 
 
 class PoseClassifier:
@@ -35,13 +41,22 @@ class PoseClassifier:
         self.lying_angle_min_degrees = float(cfg.get("lying_angle_min_degrees", 55))
         self.lying_angle_relaxed_degrees = float(cfg.get("lying_angle_relaxed_degrees", 30))
         self.lying_hip_ankle_max_ratio = float(cfg.get("lying_hip_ankle_max_ratio", 0.6))
+        self.lying_bbox_aspect_ratio_max = float(
+            cfg.get("lying_bbox_aspect_ratio_max", 0.8)
+        )
+        self.lying_straight_leg_angle_min = float(
+            cfg.get(
+                "lying_straight_leg_angle_min",
+                cfg.get("sitting_straight_leg_angle_min", 140),
+            )
+        )
+        self.lying_straight_leg_bbox_aspect_ratio_max = float(
+            cfg.get("lying_straight_leg_bbox_aspect_ratio_max", 1.6)
+        )
         self.sitting_knee_hip_ratio_max = float(cfg.get("sitting_knee_hip_ratio_max", 0.4))
         self.sitting_hip_ankle_max_ratio = float(cfg.get("sitting_hip_ankle_max_ratio", 1.0))
         self.sitting_bbox_aspect_ratio_max = float(
             cfg.get("sitting_bbox_aspect_ratio_max", 1.3)
-        )
-        self.sitting_straight_leg_angle_min = float(
-            cfg.get("sitting_straight_leg_angle_min", 140)
         )
         self.speed_walk_min_ratio = float(cfg.get("speed_walk_min_ratio", 0.15))
         self.speed_run_min_ratio = float(cfg.get("speed_run_min_ratio", 0.45))
@@ -68,6 +83,9 @@ class PoseClassifier:
         self.motion_switch_confirm_frames = max(
             1, int(cfg.get("motion_switch_confirm_frames", 4))
         )
+        self.transition_confirm_seconds = max(
+            0.0, float(cfg.get("transition_confirm_seconds", 0.75))
+        )
         # Speed history length used for hysteresis averaging.
         self._speed_history_maxlen = max(
             self.motion_smoothing_window,
@@ -92,6 +110,7 @@ class PoseClassifier:
             self._states.pop(key, None)
 
         result: list[TrackedObject] = []
+        now = time.monotonic()
         for obj in tracked_objects:
             if obj.class_name != "person":
                 result.append(obj)
@@ -123,8 +142,59 @@ class PoseClassifier:
                 # sits down), but use the hysteresis result directly.
                 state.label_history.append(raw_label)
                 stable_label = raw_label
+            stable_label = self._transition_label(stable_label, state, now)
             result.append(replace(obj, pose_label=stable_label))
         return result
+
+    def _transition_label(
+        self,
+        candidate_label: str,
+        state: _PoseTrackState,
+        now: float,
+    ) -> str:
+        """Insert a short, derived state between confirmed posture families."""
+        target_family = self._pose_family(candidate_label)
+        if target_family is None:
+            state.transition_target_family = None
+            state.transition_started_at = None
+            return candidate_label
+
+        current_family = state.confirmed_pose_family
+        if current_family is None:
+            state.confirmed_pose_family = target_family
+            return candidate_label
+
+        if target_family == current_family:
+            state.transition_target_family = None
+            state.transition_started_at = None
+            return candidate_label
+
+        if state.transition_target_family != target_family:
+            state.transition_target_family = target_family
+            state.transition_started_at = now
+
+        started_at = state.transition_started_at
+        if started_at is not None and now - started_at >= self.transition_confirm_seconds:
+            state.confirmed_pose_family = target_family
+            state.transition_target_family = None
+            state.transition_started_at = None
+            return candidate_label
+
+        if current_family == "upright" and target_family == "sitting":
+            return "sitting_down"
+        if current_family in {"sitting", "lying"} and target_family == "upright":
+            return "getting_up"
+        if target_family == "lying":
+            return "changing_to_lying"
+        return "changing_posture"
+
+    @staticmethod
+    def _pose_family(label: str) -> str | None:
+        if label in _UPRIGHT_LABELS:
+            return "upright"
+        if label in {"sitting", "lying"}:
+            return label
+        return None
 
     def _classify(
         self,
@@ -290,7 +360,13 @@ class PoseClassifier:
             and torso_angle >= self.lying_angle_relaxed_degrees
         ):
             return "lying"
-        if bbox_aspect <= 0.7 and torso_angle >= 15:
+        if bbox_aspect <= self.lying_bbox_aspect_ratio_max:
+            return "lying"
+        if (
+            bbox_aspect <= self.lying_straight_leg_bbox_aspect_ratio_max
+            and knee_angle is not None
+            and knee_angle >= self.lying_straight_leg_angle_min
+        ):
             return "lying"
 
         # ── Sitting detection ────────────────────────────────────────────
@@ -306,12 +382,6 @@ class PoseClassifier:
 
         if bbox_aspect <= self.sitting_bbox_aspect_ratio_max:
             if torso_angle < self.lying_angle_relaxed_degrees:
-                return "sitting"
-            if (
-                knee_angle is not None
-                and knee_angle >= self.sitting_straight_leg_angle_min
-                and torso_angle < self.lying_angle_min_degrees
-            ):
                 return "sitting"
 
         return "upright"

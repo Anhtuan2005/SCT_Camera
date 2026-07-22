@@ -36,6 +36,51 @@ def tracked_object(
 
 
 class SuspiciousTheftDetectorTests(unittest.TestCase):
+    def test_active_states_expose_live_score_progress(self) -> None:
+        detector = SuspiciousTheftDetector(
+            settings={
+                "proximity_seconds": 10,
+                "pacing_min_passes": 2,
+                "score_threshold": 2,
+            }
+        )
+        zone = Zone(
+            id="bike-zone",
+            name="Bike Zone",
+            zone_type="asset_watch",
+            polygon=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        )
+        person = tracked_object(20, 0, "person", (55, 35, 85, 90))
+        bike = tracked_object(10, 1, "bicycle", (35, 40, 65, 70))
+
+        with patch("analytics.theft_behavior.time.monotonic", return_value=2.0):
+            detector.analyze(
+                "cam-1",
+                "Camera 1",
+                [person, bike],
+                [zone],
+                (100, 100, 3),
+                datetime(2026, 6, 13, 14, 0, 0),
+            )
+        with patch("analytics.theft_behavior.time.monotonic", return_value=6.5):
+            detector.analyze(
+                "cam-1",
+                "Camera 1",
+                [person, bike],
+                [zone],
+                (100, 100, 3),
+                datetime(2026, 6, 13, 14, 0, 0),
+            )
+            states = detector.get_active_states("cam-1")
+
+        self.assertEqual(1, len(states))
+        self.assertEqual(20, states[0]["person_track_id"])
+        self.assertEqual(10, states[0]["vehicle_track_id"])
+        self.assertEqual(4.5, states[0]["near_seconds"])
+        self.assertEqual(10.0, states[0]["near_threshold"])
+        self.assertEqual(0, states[0]["score"])
+        self.assertEqual(2, states[0]["score_threshold"])
+
     def test_theft_alert_runs_without_configured_zone(self) -> None:
         detector = SuspiciousTheftDetector(
             settings={
@@ -140,10 +185,13 @@ class SuspiciousTheftDetectorTests(unittest.TestCase):
                 frame_shape,
                 timestamp,
             )
+            second_states = detector.get_active_states("cam-1")
 
         self.assertEqual(1, len(first_alerts))
         self.assertEqual("suspicious_theft_behavior", first_alerts[0]["type"])
         self.assertEqual([], second_alerts)
+        second_state = next(state for state in second_states if state["person_track_id"] == 21)
+        self.assertTrue(second_state["alerted"])
 
 
 if __name__ == "__main__":

@@ -106,6 +106,12 @@
     return `${latency.toFixed(0)} ms`;
   }
 
+  function formatAiFps(camera) {
+    return camera.ai_status === "warming"
+      ? "warming"
+      : Number(camera.ai_fps || 0).toFixed(1);
+  }
+
   function cameraHasChannel(camera, channel) {
     const channels = Array.isArray(camera.notification_channels) && camera.notification_channels.length
       ? camera.notification_channels
@@ -179,10 +185,14 @@
       const objectNode = card.querySelector("[data-objects]");
       const alertNode = card.querySelector("[data-alerts]");
       const fpsNode = card.querySelector("[data-fps]");
+      const captureFpsNode = card.querySelector("[data-capture-fps]");
+      const aiFpsNode = card.querySelector("[data-ai-fps]");
       const aiLatencyNode = card.querySelector("[data-ai-latency]");
       if (objectNode) objectNode.textContent = camera.object_count || 0;
       if (alertNode) alertNode.textContent = camera.alert_count || 0;
       if (fpsNode) fpsNode.textContent = Number(camera.fps || 0).toFixed(1);
+      if (captureFpsNode) captureFpsNode.textContent = Number(camera.capture_fps || 0).toFixed(1);
+      if (aiFpsNode) aiFpsNode.textContent = formatAiFps(camera);
       if (aiLatencyNode) aiLatencyNode.textContent = formatAiLatency(camera);
 
       const enabledToggle = card.querySelector(`[data-camera-enabled-toggle="${camera.camera_id}"]`);
@@ -217,10 +227,14 @@
     const objectNode = document.querySelector("[data-detail-objects]");
     const alertNode = document.querySelector("[data-detail-alerts]");
     const fpsNode = document.querySelector("[data-detail-fps]");
+    const captureFpsNode = document.querySelector("[data-detail-capture-fps]");
+    const aiFpsNode = document.querySelector("[data-detail-ai-fps]");
     const aiLatencyNode = document.querySelector("[data-detail-ai-latency]");
     if (objectNode) objectNode.textContent = camera.object_count || 0;
     if (alertNode) alertNode.textContent = camera.alert_count || 0;
     if (fpsNode) fpsNode.textContent = Number(camera.fps || 0).toFixed(1);
+    if (captureFpsNode) captureFpsNode.textContent = Number(camera.capture_fps || 0).toFixed(1);
+    if (aiFpsNode) aiFpsNode.textContent = formatAiFps(camera);
     if (aiLatencyNode) aiLatencyNode.textContent = formatAiLatency(camera);
 
     const detailEnabledToggle = document.getElementById("detailEnabledToggleLabel");
@@ -232,6 +246,13 @@
     const detailEnabledToggleLabel = document.getElementById("detailEnabledToggleLabel");
     if (detailEnabledToggleLabel) detailEnabledToggleLabel.classList.toggle("active", enabled);
 
+    const theftOverlayEnabled = camera.show_theft_overlay === true;
+    const theftOverlayToggle = document.getElementById("detailTheftOverlayToggle");
+    if (theftOverlayToggle && !theftOverlayToggle._userChanging) {
+      setSwitchState(theftOverlayToggle, theftOverlayEnabled);
+    }
+    const theftOverlayText = document.getElementById("detailTheftOverlayToggleText");
+    if (theftOverlayText) theftOverlayText.textContent = `Theft overlay ${theftOverlayEnabled ? "On" : "Off"}`;
   }
 
   function updateSettingsCameraList(cameras) {
@@ -444,7 +465,7 @@
           },
         }),
       });
-      toast("Settings saved", "Runtime thresholds updated");
+      toast("Settings saved", "Runtime configuration updated");
     });
 
     const cameraForm = document.getElementById("cameraForm");
@@ -555,6 +576,23 @@
       }
     }
 
+    async function setTheftOverlay(toggle, camId, enabled) {
+      toggle._userChanging = true;
+      try {
+        await request(`/api/cameras/${encodeURIComponent(camId)}/theft-overlay`, {
+          method: "POST",
+          body: JSON.stringify({ enabled }),
+        });
+        toast("Theft overlay", enabled ? "Live scoring shown" : "Live scoring hidden");
+        await refreshCameras();
+      } catch (err) {
+        toast("Error", err.message);
+        setSwitchState(toggle, !enabled);
+      } finally {
+        toggle._userChanging = false;
+      }
+    }
+
     async function setAllCamerasEnabled(toggle, enabled) {
       toggle._userChanging = true;
       try {
@@ -609,6 +647,19 @@
         await setCameraEnabled(detailEnabledToggle, detailEnabledToggle.dataset.cameraId, enabled);
       });
     }
+
+    const detailTheftOverlayToggle = document.getElementById("detailTheftOverlayToggle");
+    if (detailTheftOverlayToggle) {
+      detailTheftOverlayToggle.addEventListener("click", async () => {
+        const enabled = nextSwitchState(detailTheftOverlayToggle);
+        setSwitchState(detailTheftOverlayToggle, enabled);
+        await setTheftOverlay(
+          detailTheftOverlayToggle,
+          detailTheftOverlayToggle.dataset.cameraId,
+          enabled,
+        );
+      });
+    }
   }
 
   function setupStreamFullscreen() {
@@ -628,11 +679,27 @@
       button.textContent = "\u26f6";
       wrapper.appendChild(button);
 
+      const fitButton = document.createElement("button");
+      fitButton.type = "button";
+      fitButton.className = "fullscreen-fit-toggle";
+      fitButton.setAttribute("aria-label", "Fill fullscreen");
+      fitButton.setAttribute("aria-pressed", "false");
+      fitButton.textContent = "Fill";
+      wrapper.appendChild(fitButton);
+
       function streamDimensions() {
         const rect = stream.getBoundingClientRect();
         const width = stream.naturalWidth || stream.videoWidth || rect.width || 16;
         const height = stream.naturalHeight || stream.videoHeight || rect.height || 9;
         return { width, height };
+      }
+
+      function updateFitButtonLabel() {
+        const { width, height } = streamDimensions();
+        const active = fitButton.getAttribute("aria-pressed") === "true";
+        const enlargeLabel = height > width ? "Zoom" : "Fill";
+        fitButton.setAttribute("aria-label", active ? "Fit entire camera frame" : `${enlargeLabel} camera view`);
+        fitButton.textContent = active ? "Fit" : enlargeLabel;
       }
 
       function notifyOverlayResize() {
@@ -656,7 +723,12 @@
         const { width, height } = streamDimensions();
         const viewportWidth = window.innerWidth || wrapper.clientWidth || width;
         const viewportHeight = window.innerHeight || wrapper.clientHeight || height;
-        const scale = Math.min(viewportWidth / width, viewportHeight / height);
+        const fill = fitButton.getAttribute("aria-pressed") === "true";
+        const fitScale = Math.min(viewportWidth / width, viewportHeight / height);
+        const coverScale = Math.max(viewportWidth / width, viewportHeight / height);
+        const scale = fill
+          ? (height > width ? Math.min(coverScale, fitScale * 1.35) : coverScale)
+          : fitScale;
         wrapper.style.setProperty("--fullscreen-stream-width", `${Math.max(1, Math.round(width * scale))}px`);
         wrapper.style.setProperty("--fullscreen-stream-height", `${Math.max(1, Math.round(height * scale))}px`);
         if (updateOverlays) notifyOverlayResize();
@@ -682,11 +754,23 @@
         event.stopPropagation();
         toggleFullscreen();
       });
+      fitButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const fill = fitButton.getAttribute("aria-pressed") !== "true";
+        fitButton.setAttribute("aria-pressed", fill ? "true" : "false");
+        updateFitButtonLabel();
+        fitFullscreenStream(true);
+      });
       stream.addEventListener("dblclick", (event) => {
         event.preventDefault();
         toggleFullscreen();
       });
-      stream.addEventListener("load", () => fitFullscreenStream(true));
+      stream.addEventListener("load", () => {
+        updateFitButtonLabel();
+        fitFullscreenStream(true);
+      });
+      if (stream.complete) updateFitButtonLabel();
       window.addEventListener("resize", () => {
         if (!notifyingOverlayResize) fitFullscreenStream(true);
       });
@@ -698,11 +782,25 @@
     });
   }
 
+  function setupDetailOrientation() {
+    const detail = document.querySelector(".detail-layout");
+    const stream = document.getElementById("editorStream");
+    if (!detail || !stream) return;
+
+    const update = () => {
+      if (!stream.naturalWidth || !stream.naturalHeight) return;
+      detail.classList.toggle("is-portrait", stream.naturalHeight > stream.naturalWidth);
+    };
+    stream.addEventListener("load", update);
+    if (stream.complete) update();
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     setupEditorTabs();
     setupSettingsForms();
     setupCameraToggles();
     setupStreamFullscreen();
+    setupDetailOrientation();
     refreshCameras().catch((error) => toast("API error", error.message));
     window.setInterval(() => refreshCameras().catch(() => {}), 2500);
   });

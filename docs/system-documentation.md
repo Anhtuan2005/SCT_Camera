@@ -20,7 +20,7 @@ Camera/Webcam/Video/RTSP
   -> annotated frame
   -> FrameBuffer MJPEG dashboard
   -> AlertManager async queue
-  -> Telegram / Discord / local siren / in-memory alert history
+  -> Telegram / Discord / local siren / SQLite alert history
 ```
 
 Sơ đồ module:
@@ -70,7 +70,7 @@ flowchart LR
 | `scripts/` | Benchmark, backup, dataset manifest, behavior classifier training. |
 | `tests/` | Unit/integration tests cho detector, tracker, identity, behavior, pipeline, runtime settings, DB migration. |
 | `docs/` | Documentation, dataset manifest, behavior-learning guide. |
-| `data/` | Runtime data local: behavior events/labels, backups, benchmark outputs, future SQLite DB/clips. |
+| `data/` | Runtime data local: SQLite DB, behavior events/labels, backups và benchmark outputs. |
 | `models/` | InsightFace cache và behavior classifier output. |
 | `logs/` | Runtime log, mặc định `logs/sct_camera.log`. |
 
@@ -390,6 +390,39 @@ Pipeline thêm:
 - `notification_channels` từ camera config;
 - `frame` là annotated frame copy cho notification image.
 
+### Fall safety alerts
+
+`analytics/fall_detection.py::FallDetector` dùng cùng track và pose hiện có, không thêm model:
+
+1. Arm sau khi person đứng/đi ổn định ít nhất `min_upright_seconds`.
+2. Tạo candidate khi chuyển sang `lying` trong `max_transition_seconds` và tâm bbox hạ ít nhất `min_vertical_drop_ratio` theo chiều cao lúc đứng.
+   Nhãn `sitting` ngắn trong cửa sổ này được giữ như tư thế trung gian; ngồi lâu hơn thì candidate bị hủy để tránh báo giả khi ngồi hoặc nằm bình thường.
+3. Gửi `possible_fall` nếu vẫn nằm liên tục đủ `lying_alert_seconds`.
+4. Gửi `possible_unresponsive` khi đã nằm đủ `escalation_seconds`, chuyển động thấp; nhắc lại theo `urgent_reminder_seconds`.
+5. Gửi `fall_recovery` khi person ngồi/đứng lại ổn định đủ `recovery_confirm_seconds`.
+
+Các alert này có `safety_critical: true`, không bị behavior-learning gate suppress. Telegram/Discord ưu tiên `title`, `severity` và `recommended_action` để người nhà thấy ngay hành động cần làm. `emergency_number` là cấu hình theo nơi triển khai; hệ thống chỉ báo động sớm, không chẩn đoán bất tỉnh hay đột quỵ.
+
+Config mặc định:
+
+```yaml
+fall_detection:
+  enabled: true
+  min_upright_seconds: 1.0
+  max_transition_seconds: 3.0
+  min_vertical_drop_ratio: 0.2
+  lying_alert_seconds: 10
+  pose_grace_seconds: 1.0
+  escalation_seconds: 45
+  urgent_reminder_seconds: 60
+  recovery_confirm_seconds: 3
+  motion_window: 8
+  max_down_motion_ratio: 0.08
+  emergency_number: '115'
+```
+
+Để cả gia đình cùng nhận push notification, thêm Telegram bot vào một private family group và dùng group chat ID cho `telegram.chat_id`. Camera cần có `telegram` trong `notification_channels`.
+
 ## 9. Behavior learning
 
 Behavior learning là lớp enrich sau rule-based analytics. Rule engine vẫn tạo candidate trước.
@@ -454,11 +487,11 @@ Luồng:
 
 Trạng thái hiện tại:
 
-- Alert history vẫn in-memory.
-- Mỗi camera giữ tối đa 200 records.
-- API đọc qua `GET /api/alerts/{cam_id}`.
-- Restart app mất history.
-- SQLite schema đã có bảng `alerts` và `notification_deliveries`, nhưng runtime chưa wire persistence vào AlertManager.
+- Alert và kết quả delivery được persist vào `data/sct_camera.db` sau khi xử lý.
+- Alert bị cooldown cũng được ghi với `suppressed: true` và delivery status `suppressed`.
+- API `GET /api/alerts/{cam_id}` đọc SQLite bằng short-lived connection.
+- In-memory history tối đa 200 records/camera là fallback nếu SQLite read/write lỗi.
+- Restart app vẫn giữ alert history.
 
 Security:
 
@@ -522,19 +555,21 @@ API chính:
 | `POST` | `/api/settings/discord/test` | Gửi test Discord. |
 | `POST` | `/api/detection/toggle/{cam_id}` | Pause/resume detection runtime, không đổi YAML enabled. |
 | `POST` | `/api/detection/toggle-all` | Pause/resume detection cho enabled cameras. |
-| `GET` | `/api/alerts/{cam_id}` | Alert history in-memory. |
+| `GET` | `/api/alerts/{cam_id}` | Alert history từ SQLite. |
 | `GET` | `/api/behavior-events` | Behavior learning candidates. |
 | `POST` | `/api/behavior-events/{event_id}/label` | Gán label cho candidate. |
 
-## 13. SQLite migration foundation
+## 13. SQLite runtime persistence
 
-SQLite hiện là foundation cho Phase 1 persistence, chưa phải runtime store chính.
+SQLite là runtime store cho alert history và notification delivery. Behavior learning vẫn dùng JSONL/CSV; video clip writer chưa implement.
 
 `core/database.py::DatabaseManager`:
 
 - tạo `schema_migrations` và `data_migrations`;
 - bật WAL, foreign keys, busy timeout;
 - apply numbered SQL trong `migrations/`;
+- persist mỗi alert và delivery outcome trong một transaction;
+- đọc alert history bằng short-lived connection;
 - mỗi migration chạy trong `BEGIN IMMEDIATE`;
 - không dùng `executescript()`, parse statement rồi execute từng statement;
 - lỗi thì rollback cả DDL và version marker;
@@ -551,7 +586,7 @@ Schema hiện có:
 Quyết định Phase 0:
 
 - DB timestamps: Unix milliseconds UTC.
-- SQLite expected runtime design: one writer thread, bounded queue size 1000, short-lived read connections.
+- AlertManager có một worker tuần tự và bounded queue size 1000; SQLite write chạy qua `asyncio.to_thread`, read dùng short-lived connection.
 - Evidence retention trong thesis eval: không tự xóa alerts/deliveries/behavior events/labels.
 - Corrupt DB: quarantine và degraded mode; không overwrite im lặng.
 
@@ -806,12 +841,12 @@ Kiểm tra:
 4. Update settings UI/API.
 5. Update docs/config examples.
 
-### Thêm persistence runtime vào SQLite
+### Mở rộng persistence runtime trong SQLite
 
 1. Không ghi DB trực tiếp từ pipeline thread.
-2. Thêm writer queue/service một nơi sở hữu connection write.
-3. Pipeline/AlertManager chỉ enqueue event/delivery.
-4. Read API dùng short-lived read connection.
+2. Tái sử dụng AlertManager queue/worker cho alert và delivery.
+3. Behavior event hoặc clip writer mới phải giữ write tuần tự, không block pipeline.
+4. Read API tiếp tục dùng short-lived connection.
 5. Giữ WAL + foreign keys + busy timeout.
 6. Test idempotent migration, rollback, concurrent read/write cơ bản.
 
@@ -828,8 +863,8 @@ Kiểm tra:
 
 - Dashboard chưa có authentication; chỉ nên chạy LAN hoặc sau reverse proxy có auth.
 - Secrets vẫn nằm trong YAML settings nếu user nhập từ UI.
-- Alert history runtime vẫn in-memory; restart là mất.
-- SQLite schema/migration đã có, nhưng persistence runtime chưa wire.
+- Behavior events/labels vẫn dùng JSONL/CSV, chưa chuyển sang SQLite.
+- Corrupt-DB quarantine/degraded mode chưa được tự động hóa; migration lỗi sẽ chặn startup để tránh overwrite dữ liệu.
 - Event recording schema đã có, clip writer chưa implement.
 - Behavior rules stateful trong memory; restart reset state/counters.
 - Detector model dùng chung lock inference; nhiều camera có thể nghẽn ở GPU inference.

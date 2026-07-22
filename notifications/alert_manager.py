@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import uuid
 from collections import defaultdict, deque
 from datetime import datetime
 from typing import Any
 
+from core.database import DatabaseManager
 from notifications.discord_bot import DiscordBot
 from notifications.siren import SirenController
 from notifications.telegram_bot import TelegramBot
@@ -22,7 +24,11 @@ _QUEUE_MAX_SIZE = 1000
 class AlertManager:
     """Manage alert cooldowns, delivery, and history."""
 
-    def __init__(self, settings: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        settings: dict[str, Any],
+        database: DatabaseManager | None = None,
+    ) -> None:
         telegram = settings.get("telegram", {})
         self.cooldown_seconds = float(telegram.get("cooldown_seconds", 10))
         self.cooldown_overrides = self._parse_cooldown_overrides(telegram)
@@ -36,6 +42,7 @@ class AlertManager:
         self._last_sent_at: dict[tuple[str, str, str], float] = {}
         self._history: dict[str, deque[dict[str, Any]]] = defaultdict(lambda: deque(maxlen=200))
         self._history_lock = threading.Lock()
+        self.database = database
 
     async def start(self) -> None:
         """Start the async alert worker."""
@@ -117,6 +124,11 @@ class AlertManager:
 
     def get_recent(self, camera_id: str, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         """Return recent alert history for one camera."""
+        if self.database is not None:
+            try:
+                return self.database.get_recent_alerts(camera_id, limit=limit, offset=offset)
+            except Exception as exc:
+                logger.warning("Could not read alert history from SQLite: %s", exc)
         with self._history_lock:
             items = list(self._history.get(camera_id, deque()))
         items.reverse()
@@ -153,10 +165,14 @@ class AlertManager:
         now = asyncio.get_running_loop().time()
         last_sent = self._last_sent_at.get(cooldown_key, 0.0)
         cooldown_remaining = cooldown_seconds - (now - last_sent)
+        channels = self._channels_for_alert(alert)
 
         if cooldown_remaining > 0:
             record["suppressed"] = True
             record["sent"] = False
+            record["telegram_sent"] = False
+            record["discord_sent"] = False
+            record["siren_triggered"] = False
             record["message"] = f"Cooldown active ({cooldown_remaining:.1f}s remaining)"
             logger.info(
                 "Alert suppressed by cooldown: camera=%s type=%s target=%s",
@@ -164,9 +180,7 @@ class AlertManager:
                 cooldown_key[1],
                 cooldown_key[2],
             )
-            return
         else:
-            channels = self._channels_for_alert(alert)
             telegram_sent, discord_sent = await asyncio.gather(
                 self.bot.send_alert(alert) if "telegram" in channels else asyncio.sleep(0, result=False),
                 self.discord.send_alert(alert) if "discord" in channels else asyncio.sleep(0, result=False),
@@ -201,11 +215,39 @@ class AlertManager:
             )
 
         self._append_history(record)
+        await self._persist_record(record, channels)
 
     def _append_history(self, record: dict[str, Any]) -> None:
         camera_id = str(record.get("camera_id", "unknown"))
         with self._history_lock:
             self._history[camera_id].append(record)
+
+    async def _persist_record(
+        self,
+        record: dict[str, Any],
+        channels: set[str],
+    ) -> None:
+        if self.database is None:
+            return
+        deliveries = []
+        for channel in sorted(channels):
+            if record.get("suppressed"):
+                status = "suppressed"
+            elif record.get(f"{channel}_sent"):
+                status = "sent"
+            else:
+                status = "failed"
+            deliveries.append(
+                {
+                    "channel": channel,
+                    "status": status,
+                    "error": "Delivery returned false" if status == "failed" else None,
+                }
+            )
+        try:
+            await asyncio.to_thread(self.database.persist_alert, record, deliveries)
+        except Exception as exc:
+            logger.exception("Could not persist alert %s to SQLite: %s", record.get("event_id"), exc)
 
     @staticmethod
     def _channels_for_alert(alert: dict[str, Any]) -> set[str]:
@@ -265,5 +307,10 @@ class AlertManager:
             for key, value in alert.items()
             if key not in {"frame"} and not key.startswith("_")
         }
+        record["event_id"] = str(
+            record.get("event_id")
+            or record.get("behavior_event_id")
+            or uuid.uuid4()
+        )
         record["received_at"] = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
         return record

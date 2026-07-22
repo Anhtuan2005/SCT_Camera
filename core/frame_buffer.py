@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import Condition
-from time import time
+from time import monotonic, time
 
 import cv2
 import numpy as np
@@ -23,6 +23,10 @@ class FrameSnapshot:
     fps: float
     staleness_ms: float = 0.0
     ai_latency_ms: float = 0.0
+    capture_fps: float = 0.0
+    ai_fps: float = 0.0
+    capture_to_publish_ms: float = 0.0
+    dropped_capture_frames: int = 0
 
 
 class FrameBuffer:
@@ -44,6 +48,11 @@ class FrameBuffer:
         self._fps = 0.0
         self._staleness_ms = 0.0
         self._ai_latency_ms = 0.0
+        self._capture_fps = 0.0
+        self._ai_fps = 0.0
+        self._capture_to_publish_ms = 0.0
+        self._dropped_capture_frames = 0
+        self._last_ai_at = 0.0
 
     def update(
         self,
@@ -53,10 +62,14 @@ class FrameBuffer:
         status: str = "online",
         error: str | None = None,
         staleness_ms: float = 0.0,
+        captured_at_monotonic: float = 0.0,
+        capture_fps: float = 0.0,
+        dropped_capture_frames: int = 0,
     ) -> None:
         """Store a new frame and notify stream consumers."""
         jpeg = self._encode_jpeg(frame)
         now = time()
+        published_at = monotonic()
         with self._condition:
             self._frame = frame.copy()
             self._jpeg = jpeg
@@ -72,12 +85,29 @@ class FrameBuffer:
             self._updated_at = now
             self._error = error
             self._staleness_ms = max(0.0, float(staleness_ms))
+            self._capture_fps = max(0.0, float(capture_fps))
+            self._capture_to_publish_ms = (
+                max(0.0, (published_at - captured_at_monotonic) * 1000.0)
+                if captured_at_monotonic > 0
+                else 0.0
+            )
+            self._dropped_capture_frames = max(0, int(dropped_capture_frames))
             self._condition.notify_all()
 
     def set_ai_latency(self, ms: float) -> None:
         """Store the latest end-to-end AI analysis latency in milliseconds."""
+        now = monotonic()
         with self._condition:
             self._ai_latency_ms = max(0.0, float(ms))
+            if self._last_ai_at > 0:
+                delta = max(now - self._last_ai_at, 1e-6)
+                instant_fps = 1.0 / delta
+                self._ai_fps = (
+                    instant_fps
+                    if self._ai_fps <= 0
+                    else (self._ai_fps * 0.85) + (instant_fps * 0.15)
+                )
+            self._last_ai_at = now
 
     def set_status(self, status: str, error: str | None = None) -> None:
         """Update stream status without changing the current frame."""
@@ -86,6 +116,11 @@ class FrameBuffer:
             self._error = error
             self._staleness_ms = 0.0
             self._ai_latency_ms = 0.0
+            self._capture_fps = 0.0
+            self._ai_fps = 0.0
+            self._capture_to_publish_ms = 0.0
+            self._dropped_capture_frames = 0
+            self._last_ai_at = 0.0
             self._updated_at = time()
             self._version += 1
             self._condition.notify_all()
@@ -103,6 +138,10 @@ class FrameBuffer:
                 fps=self._fps,
                 staleness_ms=self._staleness_ms,
                 ai_latency_ms=self._ai_latency_ms,
+                capture_fps=self._capture_fps,
+                ai_fps=self._ai_fps,
+                capture_to_publish_ms=self._capture_to_publish_ms,
+                dropped_capture_frames=self._dropped_capture_frames,
             )
 
     def wait_for_jpeg(

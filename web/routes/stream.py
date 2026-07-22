@@ -6,7 +6,7 @@ import threading
 from collections.abc import Iterator
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from utils.logger import get_logger
 
@@ -70,5 +70,21 @@ def camera_stream(request: Request, cam_id: str) -> StreamingResponse:
     return StreamingResponse(
         frames(),
         media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
+
+@router.get("/snapshot/{cam_id}")
+def camera_snapshot(request: Request, cam_id: str) -> Response:
+    """Return one current JPEG without holding an HTTP connection open."""
+    runtime = request.app.state.runtime
+    buffer = runtime.frame_buffer(cam_id)
+    camera = runtime.get_camera(cam_id)
+    if buffer is None or camera is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    jpeg = buffer.latest_jpeg(f"{camera.get('name', cam_id)} stream offline")
+    return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
