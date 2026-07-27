@@ -14,6 +14,7 @@ from analytics.zone import Zone
 from core.database import DatabaseManager
 from core.tracker import TrackedObject
 from notifications.alert_manager import AlertManager
+from notifications.telegram_bot import TelegramBot
 
 
 class RecordingIdentityResolver:
@@ -80,7 +81,7 @@ def stationary_stranger(track_id: int) -> TrackedObject:
 
 class PersonAlertTests(unittest.TestCase):
     def test_stranger_alerts_without_roi_once_per_presence(self) -> None:
-        detector = UnknownPersonDetector()
+        detector = UnknownPersonDetector(absence_grace_seconds=0)
         now = datetime.now()
 
         first = detector.analyze(
@@ -95,12 +96,19 @@ class PersonAlertTests(unittest.TestCase):
             [person(1)],
             now,
         )
+        track_changed = detector.analyze(
+            "cam",
+            "RTSP Camera",
+            [person(2)],
+            now,
+        )
 
         self.assertEqual(1, len(first))
         self.assertEqual("stranger_detected", first[0]["type"])
         self.assertEqual("__global_stranger_watch__", first[0]["zone_id"])
         self.assertEqual("Full Frame", first[0]["zone_name"])
         self.assertEqual([], repeated)
+        self.assertEqual([], track_changed)
 
         detector.analyze("cam", "RTSP Camera", [], now)
         returned = detector.analyze(
@@ -110,6 +118,37 @@ class PersonAlertTests(unittest.TestCase):
             now,
         )
         self.assertEqual(1, len(returned))
+
+    @patch("analytics.unknown_person.time.monotonic")
+    def test_stranger_presence_survives_brief_detection_dropout(
+        self,
+        monotonic: MagicMock,
+    ) -> None:
+        monotonic.side_effect = [100.0, 100.5, 100.6, 102.7, 102.8]
+        detector = UnknownPersonDetector(absence_grace_seconds=2)
+        now = datetime.now()
+
+        first = detector.analyze("cam", "Camera", [person(1)], now)
+        detector.analyze("cam", "Camera", [], now)
+        brief_track_change = detector.analyze("cam", "Camera", [person(2)], now)
+        detector.analyze("cam", "Camera", [], now)
+        returned = detector.analyze("cam", "Camera", [person(3)], now)
+
+        self.assertEqual(1, len(first))
+        self.assertEqual([], brief_track_change)
+        self.assertEqual(1, len(returned))
+
+    def test_telegram_distinguishes_theft_and_missing_asset_titles(self) -> None:
+        bot = TelegramBot({})
+
+        expected_titles = {
+            "asset_missing": "ASSET MISSING",
+            "asset_removed": "ASSET REMOVED",
+            "suspicious_theft_behavior": "POSSIBLE THEFT",
+        }
+        for alert_type, title in expected_titles.items():
+            caption = bot._build_caption({"type": alert_type})
+            self.assertIn(f"*[{title}]*", caption)
 
     def test_known_person_does_not_trigger_stranger_alert(self) -> None:
         detector = UnknownPersonDetector()

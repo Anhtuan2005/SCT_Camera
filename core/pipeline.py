@@ -558,8 +558,7 @@ class CameraPipeline:
 
             reconnect_attempts = 0
             self.frame_buffer.set_status("connecting", "Waiting for first frame")
-            self.tracker.reset()
-            self._reset_analysis_state()
+            self._reset_source_state(camera_id)
             frame_index = 0
 
             latest_capture: _LatestFrameCapture | None = None
@@ -589,8 +588,7 @@ class CameraPipeline:
                     if not ok or frame is None:
                         if is_video_file and params["loop_video_files"]:
                             self._reset_looping_video_capture(capture)
-                            self.tracker.reset()
-                            self._reset_analysis_state()
+                            self._reset_source_state(camera_id)
                             frame_index = 0
                             next_frame_at = time.monotonic()
                             params = self._get_pipeline_params()
@@ -667,6 +665,11 @@ class CameraPipeline:
                     self._sleep_interruptible(params["reconnect_delay"])
 
         self.frame_buffer.set_status("offline", "Pipeline exited")
+
+    def _reset_source_state(self, camera_id: str) -> None:
+        self.tracker.reset()
+        self.behavior_engine.reset_camera(camera_id)
+        self._reset_analysis_state()
 
     def _reset_analysis_state(self) -> None:
         with self._analysis_state_lock:

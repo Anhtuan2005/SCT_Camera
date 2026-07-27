@@ -299,7 +299,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             MAX_QUALITY_RUNTIME_SETTINGS["detection"]["class_confidences"]["bicycle"],
         )
         self.assertEqual(
-            0.35,
+            0.45,
             MAX_QUALITY_RUNTIME_SETTINGS["detection"]["class_confidences"]["person"],
         )
         self.assertEqual(

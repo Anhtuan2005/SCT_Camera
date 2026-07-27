@@ -109,6 +109,49 @@ class AssetWatchDetectorTests(unittest.TestCase):
         self.assertEqual(1, len(first_alerts))
         self.assertEqual([], second_alerts)
 
+    def test_track_handoff_waits_until_replacement_track_really_disappears(self) -> None:
+        detector = AssetWatchDetector(
+            default_missing_seconds=2,
+            settings={
+                "person_window_seconds": 12,
+                "min_presence_seconds": 1,
+                "interaction_distance_ratio": 0.3,
+            },
+        )
+        zone = Zone(
+            id="bike-zone",
+            name="Bike Zone",
+            zone_type="asset_watch",
+            polygon=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+            threshold_seconds=2,
+        )
+        old_track = tracked_object(5, 3, "motorcycle", (70, 40, 95, 80))
+        replacement_track = tracked_object(1, 3, "motorcycle", (10, 40, 35, 80))
+        person = tracked_object(20, 0, "person", (55, 25, 85, 80))
+        args = ("cam-1", "Camera 1")
+        frame_shape = (100, 100, 3)
+        timestamp = datetime(2026, 7, 27, 9, 47, 0)
+
+        with patch("analytics.asset_watch.time.monotonic", return_value=0.0):
+            detector.analyze(*args, [old_track, person], [zone], frame_shape, timestamp)
+        with patch("analytics.asset_watch.time.monotonic", return_value=1.1):
+            detector.analyze(*args, [replacement_track, person], [zone], frame_shape, timestamp)
+        with patch("analytics.asset_watch.time.monotonic", return_value=3.2):
+            false_alerts = detector.analyze(
+                *args,
+                [replacement_track, person],
+                [zone],
+                frame_shape,
+                timestamp,
+            )
+        with patch("analytics.asset_watch.time.monotonic", return_value=5.3):
+            real_alerts = detector.analyze(*args, [], [zone], frame_shape, timestamp)
+
+        self.assertEqual([], false_alerts)
+        self.assertEqual(1, len(real_alerts))
+        self.assertEqual("asset_missing", real_alerts[0]["type"])
+        self.assertEqual(replacement_track.track_id, real_alerts[0]["track_id"])
+
     def test_one_frame_asset_reappearance_does_not_reset_missing_clock(self) -> None:
         detector = AssetWatchDetector(
             default_missing_seconds=2,

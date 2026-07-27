@@ -55,6 +55,20 @@ class _Runtime:
 
 
 class WebResponsivenessTests(unittest.TestCase):
+    def test_recent_alerts_distinguish_missing_assets_from_possible_theft(self) -> None:
+        root = Path(__file__).parents[1]
+        javascript = (root / "web" / "static" / "js" / "main.js").read_text(
+            encoding="utf-8"
+        )
+        base_template = (root / "web" / "templates" / "base.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('asset_missing: "Asset missing"', javascript)
+        self.assertIn('asset_removed: "Asset removed"', javascript)
+        self.assertIn('suspicious_theft_behavior: "Possible theft"', javascript)
+        self.assertIn("main.js?v=security-console-15", base_template)
+
     def test_camera_detail_keeps_two_columns_until_compact_breakpoint(self) -> None:
         css = (Path(__file__).parents[1] / "web" / "static" / "css" / "style.css").read_text(
             encoding="utf-8"

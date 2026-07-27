@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from typing import Any
 
@@ -13,10 +14,12 @@ FULL_FRAME_ZONE_NAME = "Full Frame"
 
 
 class UnknownPersonDetector:
-    """Alert once when a candidate track is confirmed as an unknown person."""
+    """Alert once per continuous stranger presence on each camera."""
 
-    def __init__(self) -> None:
-        self._alerted: set[tuple[str, int]] = set()
+    def __init__(self, absence_grace_seconds: float = 2.0) -> None:
+        self.absence_grace_seconds = max(0.0, float(absence_grace_seconds))
+        self._active_cameras: set[str] = set()
+        self._last_seen_at: dict[str, float] = {}
 
     def analyze(
         self,
@@ -26,39 +29,45 @@ class UnknownPersonDetector:
         timestamp: datetime,
     ) -> list[dict[str, Any]]:
         """Return alerts for newly visible unknown people."""
+        now = time.monotonic()
         strangers = [obj for obj in objects if self._is_stranger(obj)]
-        active_keys = {(camera_id, obj.track_id) for obj in strangers}
-        self._alerted = {
-            key
-            for key in self._alerted
-            if key[0] != camera_id or key in active_keys
-        }
+        if not strangers:
+            last_seen_at = self._last_seen_at.get(camera_id)
+            if (
+                last_seen_at is None
+                or now - last_seen_at >= self.absence_grace_seconds
+            ):
+                self.reset_camera(camera_id)
+            return []
+        self._last_seen_at[camera_id] = now
+        if camera_id in self._active_cameras:
+            return []
 
-        alerts: list[dict[str, Any]] = []
-        for obj in strangers:
-            key = (camera_id, obj.track_id)
-            if key in self._alerted:
-                continue
-            self._alerted.add(key)
-            label = obj.identity_label or "Stranger"
-            alerts.append(
-                {
-                    "type": "stranger_detected",
-                    "camera_id": camera_id,
-                    "camera_name": camera_name,
-                    "track_id": obj.track_id,
-                    "class_id": obj.class_id,
-                    "class_name": obj.class_name,
-                    "identity_label": label,
-                    "identity_kind": obj.identity_kind or "stranger",
-                    "identity_score": obj.identity_score,
-                    "zone_id": FULL_FRAME_ZONE_ID,
-                    "zone_name": FULL_FRAME_ZONE_NAME,
-                    "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                    "details": f"Unknown person detected: {label} (Track #{obj.track_id})",
-                }
-            )
-        return alerts
+        self._active_cameras.add(camera_id)
+        obj = strangers[0]
+        label = obj.identity_label or "Stranger"
+        return [
+            {
+                "type": "stranger_detected",
+                "camera_id": camera_id,
+                "camera_name": camera_name,
+                "track_id": obj.track_id,
+                "class_id": obj.class_id,
+                "class_name": obj.class_name,
+                "identity_label": label,
+                "identity_kind": obj.identity_kind or "stranger",
+                "identity_score": obj.identity_score,
+                "zone_id": FULL_FRAME_ZONE_ID,
+                "zone_name": FULL_FRAME_ZONE_NAME,
+                "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "details": f"Unknown person detected: {label} (Track #{obj.track_id})",
+            }
+        ]
+
+    def reset_camera(self, camera_id: str) -> None:
+        """Forget continuous-presence state for one camera."""
+        self._active_cameras.discard(camera_id)
+        self._last_seen_at.pop(camera_id, None)
 
     @staticmethod
     def _is_stranger(obj: TrackedObject) -> bool:

@@ -19,6 +19,7 @@ htmlcov/
 .env.*
 !.env.example
 config/settings.yaml
+config/settings.before_*.yaml
 config/cameras/*.yaml
 config/cameras/*.yaml.disabled
 config/known_people/*
@@ -46,5 +47,10 @@ test_videos/
 # OS and editor files
 .DS_Store
 Thumbs.db
+.vs/
 .vscode/
 .idea/
+~$*.docx
+
+# Temporary work artifacts
+.tmp*/

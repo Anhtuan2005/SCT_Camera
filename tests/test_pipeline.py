@@ -139,6 +139,7 @@ class PipelineCadenceTests(unittest.TestCase):
         pipeline._stop_event = Event()
         pipeline.frame_buffer = Buffer()
         pipeline.tracker = SimpleNamespace(reset=lambda: None)
+        pipeline.behavior_engine = SimpleNamespace(reset_camera=lambda _camera_id: None)
         pipeline._published_analysis_result_id = 0
         pipeline._last_stale_warning_result_id = 0
         pipeline._get_config = lambda: {"camera_id": "cam", "name": "Camera", "source": 0}
@@ -180,6 +181,18 @@ class PipelineCadenceTests(unittest.TestCase):
 
         self.assertEqual([1], submitted_frames)
         self.assertEqual(1, len(pipeline.frame_buffer.frames))
+
+    def test_source_reset_clears_tracker_behavior_and_analysis_state(self) -> None:
+        pipeline = CameraPipeline.__new__(CameraPipeline)
+        pipeline.tracker = MagicMock()
+        pipeline.behavior_engine = MagicMock()
+        pipeline._reset_analysis_state = MagicMock()
+
+        pipeline._reset_source_state("cam")
+
+        pipeline.tracker.reset.assert_called_once_with()
+        pipeline.behavior_engine.reset_camera.assert_called_once_with("cam")
+        pipeline._reset_analysis_state.assert_called_once_with()
 
     def test_inflight_analysis_timeout_allows_new_analysis(self) -> None:
         pipeline = CameraPipeline.__new__(CameraPipeline)

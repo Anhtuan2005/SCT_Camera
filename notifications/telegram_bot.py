@@ -13,6 +13,12 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+_ALERT_TITLES = {
+    "asset_missing": "ASSET MISSING",
+    "asset_removed": "ASSET REMOVED",
+    "suspicious_theft_behavior": "POSSIBLE THEFT",
+}
+
 
 class TelegramBot:
     """Send alert photos and test messages to Telegram asynchronously."""
@@ -106,7 +112,11 @@ class TelegramBot:
         return False
 
     def _build_caption(self, alert: dict[str, Any]) -> str:
-        fallback_title = str(alert.get("type", "alert")).replace("_", " ").upper()
+        alert_type = str(alert.get("type", "alert"))
+        fallback_title = _ALERT_TITLES.get(
+            alert_type,
+            alert_type.replace("_", " ").upper(),
+        )
         title = self._escape(str(alert.get("title") or fallback_title))
         severity = str(alert.get("severity", "warning")).strip().lower()
         icon = {

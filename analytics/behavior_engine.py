@@ -65,7 +65,11 @@ class BehaviorEngine:
                 behavior.get("stranger_watch_state_grace_seconds", 3)
             ),
         )
-        self.unknown_person = UnknownPersonDetector()
+        self.unknown_person = UnknownPersonDetector(
+            absence_grace_seconds=float(
+                behavior.get("unknown_person_absence_grace_seconds", 2)
+            )
+        )
         self.asset_watch = AssetWatchDetector(
             default_missing_seconds=float(behavior.get("asset_missing_seconds", 6)),
             settings=behavior.get("asset_watch", {}),
@@ -190,6 +194,14 @@ class BehaviorEngine:
     def get_stranger_watch_states(self, camera_id: str) -> dict[int, dict[str, Any]]:
         """Return current stranger-watch timer states."""
         return self.suspicious_stranger.get_active_states(camera_id)
+
+    def reset_camera(self, camera_id: str) -> None:
+        """Reset transient alert state when a camera source restarts."""
+        self.loitering._clear_camera(camera_id)
+        self.suspicious_stranger._clear_camera(camera_id)
+        self.unknown_person.reset_camera(camera_id)
+        self.asset_watch._clear_camera(camera_id)
+        self.theft_behavior._clear_camera(camera_id)
 
     @classmethod
     def _load_zones(cls, camera_config: dict[str, Any]) -> list[Zone]:

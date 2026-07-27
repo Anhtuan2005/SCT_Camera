@@ -57,6 +57,10 @@ class AssetWatchDetector:
             0.0,
             float(settings.get("reappear_confirm_seconds", 1.0)),
         )
+        self.track_handoff_seconds = max(
+            0.0,
+            float(settings.get("track_handoff_seconds", 2.0)),
+        )
         self.alert_repeat_seconds = max(
             0.0,
             float(settings.get("alert_repeat_seconds", settings.get("repeat_window_seconds", 300))),
@@ -174,6 +178,45 @@ class AssetWatchDetector:
             person = self._nearest_interacting_person(asset, people_in_zone, frame_shape)
             if person is not None:
                 self._mark_person_near(state, person, now)
+
+        visible_asset_ids = {asset.track_id for asset in asset_objects}
+        inside_by_class: dict[str, list[TrackedObject]] = {}
+        for asset in asset_objects:
+            if asset.track_id in inside_asset_ids:
+                inside_by_class.setdefault(asset.class_name, []).append(asset)
+        for candidates in inside_by_class.values():
+            if len(candidates) != 1:
+                continue
+            replacement = candidates[0]
+            replacement_key = (camera_id, zone.id, replacement.track_id)
+            replacement_state = self._assets[replacement_key]
+            for old_key, old_state in list(self._assets.items()):
+                if (
+                    old_key[:2] != (camera_id, zone.id)
+                    or old_key == replacement_key
+                    or old_key[2] in visible_asset_ids
+                    or old_state.class_name != replacement.class_name
+                    or now - old_state.last_seen_inside > self.track_handoff_seconds
+                ):
+                    continue
+                replacement_state.first_seen = min(
+                    replacement_state.first_seen,
+                    old_state.first_seen,
+                )
+                if old_state.last_person_near > replacement_state.last_person_near:
+                    replacement_state.last_person_near = old_state.last_person_near
+                    replacement_state.person_track_id = old_state.person_track_id
+                    replacement_state.person_label = old_state.person_label
+                replacement_state.alerted = replacement_state.alerted or old_state.alerted
+                self._assets.pop(old_key)
+                self._log_gate(
+                    "track_handoff",
+                    now,
+                    old_state,
+                    zone_id=zone.id,
+                    replacement_track_id=replacement.track_id,
+                )
+
         for key, state in self._assets.items():
             if key[:2] == (camera_id, zone.id) and key[2] not in inside_asset_ids:
                 state.inside_streak_start = None

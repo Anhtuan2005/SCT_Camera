@@ -4,8 +4,8 @@
     loitering: "Loitering",
     stranger_detected: "Stranger detected",
     suspicious_stranger: "Suspicious stranger",
-    asset_missing: "Possible theft",
-    asset_removed: "Possible theft",
+    asset_missing: "Asset missing",
+    asset_removed: "Asset removed",
     suspicious_theft_behavior: "Possible theft",
     line_crossing: "Line crossing",
   };
@@ -292,7 +292,7 @@
     if (detail && !ids.includes(detail.dataset.cameraId)) ids.push(detail.dataset.cameraId);
 
     for (const cameraId of ids) {
-      const alerts = await request(`/api/alerts/${encodeURIComponent(cameraId)}?limit=10`).catch(() => []);
+      const alerts = await request(`/api/alerts/${encodeURIComponent(cameraId)}?limit=50`).catch(() => []);
       if (detail && detail.dataset.cameraId === cameraId) renderAlertTable(alerts);
       for (const alert of alerts) {
         const key = alertKey(cameraId, alert);

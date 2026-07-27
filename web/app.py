@@ -47,7 +47,7 @@ MAX_QUALITY_RUNTIME_SETTINGS: dict[str, Any] = {
             "handbag": 0.12,
             "laptop": 0.20,
             "motorcycle": 0.10,
-            "person": 0.35,
+            "person": 0.45,
             "suitcase": 0.12,
             "truck": 0.15,
         },
