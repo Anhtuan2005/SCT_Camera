@@ -197,6 +197,8 @@ class BehaviorEngine:
 
     def reset_camera(self, camera_id: str) -> None:
         """Reset transient alert state when a camera source restarts."""
+        self.pose_classifier.reset_camera(camera_id)
+        self.fall_detector.reset_camera(camera_id)
         self.loitering._clear_camera(camera_id)
         self.suspicious_stranger._clear_camera(camera_id)
         self.unknown_person.reset_camera(camera_id)

@@ -224,6 +224,56 @@ class DrawingTests(unittest.TestCase):
         draw_emergency.assert_called_once()
         self.assertEqual("SOS | POSSIBLE EMERGENCY", draw_emergency.call_args.args[1])
 
+    def test_occluded_fall_draws_last_known_box(self) -> None:
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        alerts = [
+            {
+                "type": "possible_fall",
+                "track_id": 4,
+                "occluded": True,
+                "last_known_bbox": [10.0, 20.0, 140.0, 180.0],
+                "started_at": 100.0,
+                "expires_at": 106.0,
+            }
+        ]
+
+        with patch("utils.drawing.time.monotonic", return_value=100.0):
+            with patch("utils.drawing._draw_last_known_box", create=True) as draw_box:
+                annotated = draw_annotations(frame, [], {"camera_id": "cam"}, active_alerts=alerts)
+
+        draw_box.assert_called_once()
+        self.assertIs(annotated, draw_box.call_args.args[0])
+        self.assertEqual((10, 20, 140, 180), draw_box.call_args.args[1])
+        self.assertEqual("LAST SEEN | POSSIBLE FALL", draw_box.call_args.args[2])
+
+    def test_occluded_emergency_updates_last_known_box_label(self) -> None:
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        alerts = [
+            {
+                "type": "possible_unresponsive",
+                "track_id": 4,
+                "occluded": True,
+                "last_known_bbox": [10.0, 20.0, 140.0, 180.0],
+                "started_at": 100.0,
+                "expires_at": 160.0,
+            }
+        ]
+
+        with patch("utils.drawing.time.monotonic", return_value=100.0):
+            with patch("utils.drawing._draw_last_known_box") as draw_box:
+                draw_annotations(
+                    frame,
+                    [],
+                    {"camera_id": "cam"},
+                    active_alerts=alerts,
+                )
+
+        draw_box.assert_called_once()
+        self.assertEqual(
+            "LAST SEEN | POSSIBLE EMERGENCY",
+            draw_box.call_args.args[2],
+        )
+
     def test_emergency_object_label_replaces_lying_pose(self) -> None:
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
         person = TrackedObject(

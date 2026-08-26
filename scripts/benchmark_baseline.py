@@ -291,8 +291,8 @@ def main() -> int:
     args.source = args.source.resolve()
     if not args.source.is_file():
         raise FileNotFoundError(args.source)
-    if any(count not in {1, 2} for count in args.cameras):
-        raise ValueError("--cameras accepts only 1 and/or 2")
+    if any(count < 1 for count in args.cameras):
+        raise ValueError("--cameras accepts positive camera counts")
     if args.duration <= 0 and args.max_frames <= 0:
         raise ValueError("Set --duration or --max-frames to a positive value")
 

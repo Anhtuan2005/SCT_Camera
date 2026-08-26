@@ -125,10 +125,11 @@ def load_external_labels(path: Path | None) -> dict[str, dict[str, str]]:
                 labels[str(item["event_id"])] = {
                     "label": str(item.get("label", "")),
                     "notes": str(item.get("notes", item.get("label_notes", ""))),
+                    "group_id": str(item.get("group_id", "")).strip(),
                 }
         return labels
     labels = {}
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
         for row in csv.DictReader(handle):
             event_id = str(row.get("event_id", "")).strip()
             if not event_id:
@@ -136,6 +137,7 @@ def load_external_labels(path: Path | None) -> dict[str, dict[str, str]]:
             labels[event_id] = {
                 "label": str(row.get("label", "")).strip(),
                 "notes": str(row.get("notes", row.get("label_notes", ""))).strip(),
+                "group_id": str(row.get("group_id", "")).strip(),
             }
     return labels
 
@@ -156,7 +158,13 @@ def build_dataset(
         features = record.get("features")
         if not isinstance(features, dict):
             continue
-        dataset.append({"event_id": event_id, "features": features, "target": target, "label": label})
+        dataset.append({
+            "event_id": event_id,
+            "features": features,
+            "target": target,
+            "label": label,
+            "group_id": str(external_labels.get(event_id, {}).get("group_id", "")).strip(),
+        })
     return dataset
 
 

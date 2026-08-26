@@ -1,0 +1,309 @@
+{
+  "sourcePptx": "E:\\BaoCao_ThuyetTrinh_BAN_CUOI_v3.pptx",
+  "workspace": "E:\\SCT_Camera\\.codex-tmp\\paper-slide",
+  "outDir": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect",
+  "generatedAt": "2026-08-25T17:19:22.199Z",
+  "slideCount": 24,
+  "slideArtifacts": [
+    {
+      "slide": 1,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-01.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-01.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-01.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-01.layout.json"
+    },
+    {
+      "slide": 2,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-02.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-02.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-02.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-02.layout.json"
+    },
+    {
+      "slide": 3,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-03.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-03.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-03.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-03.layout.json"
+    },
+    {
+      "slide": 4,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-04.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-04.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-04.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-04.layout.json"
+    },
+    {
+      "slide": 5,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-05.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-05.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-05.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-05.layout.json"
+    },
+    {
+      "slide": 6,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-06.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-06.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-06.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-06.layout.json"
+    },
+    {
+      "slide": 7,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-07.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-07.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-07.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-07.layout.json"
+    },
+    {
+      "slide": 8,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-08.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-08.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-08.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-08.layout.json"
+    },
+    {
+      "slide": 9,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-09.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-09.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-09.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-09.layout.json"
+    },
+    {
+      "slide": 10,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-10.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-10.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-10.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-10.layout.json"
+    },
+    {
+      "slide": 11,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-11.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-11.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-11.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-11.layout.json"
+    },
+    {
+      "slide": 12,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-12.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-12.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-12.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-12.layout.json"
+    },
+    {
+      "slide": 13,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-13.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-13.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-13.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-13.layout.json"
+    },
+    {
+      "slide": 14,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-14.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-14.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-14.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-14.layout.json"
+    },
+    {
+      "slide": 15,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-15.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-15.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-15.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-15.layout.json"
+    },
+    {
+      "slide": 16,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-16.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-16.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-16.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-16.layout.json"
+    },
+    {
+      "slide": 17,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-17.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-17.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-17.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-17.layout.json"
+    },
+    {
+      "slide": 18,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-18.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-18.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-18.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-18.layout.json"
+    },
+    {
+      "slide": 19,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-19.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-19.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-19.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-19.layout.json"
+    },
+    {
+      "slide": 20,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-20.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-20.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-20.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-20.layout.json"
+    },
+    {
+      "slide": 21,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-21.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-21.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-21.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-21.layout.json"
+    },
+    {
+      "slide": 22,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-22.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-22.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-22.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-22.layout.json"
+    },
+    {
+      "slide": 23,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-23.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-23.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-23.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-23.layout.json"
+    },
+    {
+      "slide": 24,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\source-slides\\source-slide-24.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-24.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\layouts\\source-slide-24.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-24.layout.json"
+    }
+  ],
+  "inspectPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\template-inspect.ndjson",
+  "inspectRelativePath": "template-inspect/template-inspect.ndjson",
+  "inspectTruncated": true,
+  "inspectMetadata": {
+    "revision": "3uhr2n",
+    "target": {
+      "id": "pr/srcjo4"
+    },
+    "kind": {
+      "requested": "slide,textbox,shape,image,table,chart",
+      "tokens": [
+        "slide",
+        "textbox",
+        "shape",
+        "image",
+        "table",
+        "chart"
+      ]
+    },
+    "include": {
+      "tokens": []
+    },
+    "exclude": {
+      "tokens": []
+    },
+    "notices": []
+  },
+  "extractedMedia": [
+    {
+      "entry": "ppt/media/image.png",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\assets\\ppt\\media\\image.png",
+      "relativePath": "template-inspect/assets/ppt/media/image.png",
+      "bytes": 49341
+    },
+    {
+      "entry": "ppt/media/image.jpeg",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\assets\\ppt\\media\\image.jpeg",
+      "relativePath": "template-inspect/assets/ppt/media/image.jpeg",
+      "bytes": 21932
+    },
+    {
+      "entry": "ppt/media/image2.png",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\assets\\ppt\\media\\image2.png",
+      "relativePath": "template-inspect/assets/ppt/media/image2.png",
+      "bytes": 104842
+    },
+    {
+      "entry": "ppt/media/image3.png",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\assets\\ppt\\media\\image3.png",
+      "relativePath": "template-inspect/assets/ppt/media/image3.png",
+      "bytes": 154531
+    },
+    {
+      "entry": "ppt/media/image4.png",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\assets\\ppt\\media\\image4.png",
+      "relativePath": "template-inspect/assets/ppt/media/image4.png",
+      "bytes": 133508
+    },
+    {
+      "entry": "ppt/media/image5.png",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\assets\\ppt\\media\\image5.png",
+      "relativePath": "template-inspect/assets/ppt/media/image5.png",
+      "bytes": 145618
+    },
+    {
+      "entry": "ppt/media/image6.png",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\assets\\ppt\\media\\image6.png",
+      "relativePath": "template-inspect/assets/ppt/media/image6.png",
+      "bytes": 102746
+    },
+    {
+      "entry": "ppt/media/image7.png",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\assets\\ppt\\media\\image7.png",
+      "relativePath": "template-inspect/assets/ppt/media/image7.png",
+      "bytes": 1260779
+    },
+    {
+      "entry": "ppt/media/image8.png",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\assets\\ppt\\media\\image8.png",
+      "relativePath": "template-inspect/assets/ppt/media/image8.png",
+      "bytes": 237973
+    },
+    {
+      "entry": "ppt/media/image2.jpeg",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide\\template-inspect\\assets\\ppt\\media\\image2.jpeg",
+      "relativePath": "template-inspect/assets/ppt/media/image2.jpeg",
+      "bytes": 55135
+    }
+  ],
+  "fonts": [
+    "+mj-lt",
+    "+mn-lt",
+    "Angsana New",
+    "Arial",
+    "Arial Bold",
+    "Arial Italics",
+    "Calibri",
+    "Cordia New",
+    "DaunPenh",
+    "DokChampa",
+    "Estrangelo Edessa",
+    "Euphemia",
+    "Gautami",
+    "Iskoola Pota",
+    "Kalinga",
+    "Kartika",
+    "Latha",
+    "MV Boli",
+    "Mangal",
+    "Microsoft Himalaya",
+    "Microsoft Uighur",
+    "Microsoft Yi Baiti",
+    "Mongolian Baiti",
+    "MoolBoran",
+    "Nyala",
+    "Plantagenet Cherokee",
+    "Raavi",
+    "Shruti",
+    "Times New Roman",
+    "Tunga",
+    "Vrinda",
+    "宋体",
+    "新細明體",
+    "맑은 고딕",
+    "ＭＳ Ｐゴシック"
+  ],
+  "packageParts": {
+    "mediaCount": 10,
+    "slideXmlCount": 24,
+    "chartCount": 0,
+    "tableSlideCount": 2
+  }
+}

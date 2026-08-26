@@ -1,0 +1,29 @@
+{
+  "outputSlides": [
+    {
+      "outputSlide": 1,
+      "sourceSlide": 1,
+      "narrativeRole": "publication achievement proof",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "action": "rewrite",
+          "shapeId": "sh/h072l4jy"
+        },
+        {
+          "action": "rewrite",
+          "shapeId": "sh/cby5k3yt"
+        },
+        {
+          "action": "rewrite-and-reposition",
+          "shapeIds": [
+            "sh/ra54bix8",
+            "sh/q9wnidgn"
+          ]
+        }
+      ]
+    }
+  ],
+  "omittedSourceSlides": []
+}
+

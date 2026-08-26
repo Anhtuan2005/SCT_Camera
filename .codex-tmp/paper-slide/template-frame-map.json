@@ -1,0 +1,98 @@
+{
+  "outputSlides": [
+    {
+      "outputSlide": 1,
+      "sourceSlide": 17,
+      "narrativeRole": "publication evidence and achievement proof",
+      "reuseMode": "duplicate-slide",
+      "editTargets": [
+        {
+          "action": "rewrite",
+          "shapeIds": [
+            "sh/0ji9wb6t",
+            "sh/8ze9gbyx",
+            "sh/29grm1of",
+            "sh/honqdwnu",
+            "sh/p0j6dcvy",
+            "sh/gbq50neh",
+            "sh/wna5o3m5",
+            "sh/vm1ofilk",
+            "sh/alsnmd4z"
+          ]
+        },
+        {
+          "action": "rewrite-and-reposition",
+          "shapeIds": [
+            "sh/zul836xg",
+            "sh/2dsn2xwn",
+            "sh/oza547ed"
+          ]
+        },
+        {
+          "action": "delete",
+          "shapeIds": [
+            "sh/d83q1wfa",
+            "sh/fah47idw",
+            "sh/658nudwf",
+            "sh/jy1kfehg",
+            "sh/50j2hozm",
+            "sh/vuhkbehk",
+            "sh/at8j290z",
+            "sh/wvq14ji5",
+            "sh/n6h07uh8",
+            "sh/cbmh8vyl",
+            "sh/q94z6lgv",
+            "sh/0z6hcfyx",
+            "sh/ex4za5gr",
+            "sh/zyxgjaxc",
+            "sh/h4by9gfy",
+            "sh/xoj6h83q",
+            "sh/5s36ls3m",
+            "sh/kru5snm1",
+            "sh/jqlojilw",
+            "sh/ipcnqd4b",
+            "sh/tg36ps3y",
+            "sh/sfu5wnmd"
+          ]
+        },
+        {
+          "action": "add",
+          "newPrimitiveAllowed": true,
+          "mustNotOverlapInherited": true,
+          "zone": {
+            "left": 810,
+            "top": 310,
+            "width": 950,
+            "height": 350
+          },
+          "reason": "Place the supplied paper-header image inside the inherited first-card media frame after deleting its original screenshot."
+        }
+      ]
+    }
+  ],
+  "omittedSourceSlides": [
+    { "sourceSlide": 1, "reason": "Title pattern not needed." },
+    { "sourceSlide": 2, "reason": "Agenda pattern not needed." },
+    { "sourceSlide": 3, "reason": "Problem statement not needed." },
+    { "sourceSlide": 4, "reason": "Scope pattern not needed." },
+    { "sourceSlide": 5, "reason": "Algorithm inventory not needed." },
+    { "sourceSlide": 6, "reason": "Pipeline pattern not needed." },
+    { "sourceSlide": 7, "reason": "Behavior-law grid not needed." },
+    { "sourceSlide": 8, "reason": "Environment pattern not needed." },
+    { "sourceSlide": 9, "reason": "Alert integration pattern not needed." },
+    { "sourceSlide": 10, "reason": "Test setup pattern not needed." },
+    { "sourceSlide": 11, "reason": "Scaling table not needed." },
+    { "sourceSlide": 12, "reason": "Latency chart not needed." },
+    { "sourceSlide": 13, "reason": "MOT metrics table not needed." },
+    { "sourceSlide": 14, "reason": "Automated test grid not needed." },
+    { "sourceSlide": 15, "reason": "Four-card evidence pattern is too dense." },
+    { "sourceSlide": 16, "reason": "Four-card evidence pattern is too dense." },
+    { "sourceSlide": 18, "reason": "Stability metric pattern not needed." },
+    { "sourceSlide": 19, "reason": "Text-only achievement/limitation pattern lacks a media slot." },
+    { "sourceSlide": 20, "reason": "Roadmap pattern not needed." },
+    { "sourceSlide": 21, "reason": "Conclusion pattern not needed." },
+    { "sourceSlide": 22, "reason": "Full-screen dark demo pattern is not suitable for publication evidence." },
+    { "sourceSlide": 23, "reason": "Work-allocation pattern not needed." },
+    { "sourceSlide": 24, "reason": "Closing pattern not needed." }
+  ]
+}

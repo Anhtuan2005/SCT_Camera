@@ -1,0 +1,180 @@
+{
+  "citations": {
+    "reference_numbers": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27
+    ],
+    "missing_reference_numbers": [
+      0
+    ],
+    "uncited_reference_numbers": [
+      16,
+      17,
+      19,
+      24,
+      26
+    ],
+    "citation_frequency": [
+      [
+        0,
+        2
+      ],
+      [
+        1,
+        4
+      ],
+      [
+        2,
+        4
+      ],
+      [
+        3,
+        2
+      ],
+      [
+        4,
+        1
+      ],
+      [
+        5,
+        1
+      ],
+      [
+        6,
+        3
+      ],
+      [
+        7,
+        2
+      ],
+      [
+        8,
+        1
+      ],
+      [
+        9,
+        2
+      ],
+      [
+        10,
+        1
+      ],
+      [
+        11,
+        2
+      ],
+      [
+        12,
+        2
+      ],
+      [
+        13,
+        1
+      ],
+      [
+        14,
+        3
+      ],
+      [
+        15,
+        1
+      ],
+      [
+        18,
+        1
+      ],
+      [
+        20,
+        1
+      ],
+      [
+        21,
+        1
+      ],
+      [
+        22,
+        1
+      ],
+      [
+        23,
+        1
+      ],
+      [
+        25,
+        1
+      ],
+      [
+        27,
+        1
+      ]
+    ]
+  },
+  "captions": {
+    "figure_count": 37,
+    "table_count": 12,
+    "figure_sequence_issues": [],
+    "table_sequence_issues": [],
+    "manual_numbered_figures": [
+      "Hình 2-3: Kiến trúc Backbone – Neck – Head của YOLOv11",
+      "Hình 2-4: Chiến lược liên kết hai bước BYTE",
+      "Hình 2-5: Chu trình Dự đoán - Cập nhật (Predict - Update) của bộ lọc Kalman",
+      "Hình 2-6: Ba bước của cơ chế bù chuyển động camera (Camera Motion Compensation)",
+      "Hình 2-7: Bài toán gán ghép lưỡng phân giữa track và detection",
+      "Hình 2-8: So sánh không gian đặc trưng giữa Softmax truyền thống và ArcFace",
+      "Hình 2-9: Hai kỹ thuật hình học tính toán dùng trong phân tích hành vi",
+      "Hình 2-10: Hàm Sigmoid ánh xạ điểm số tuyến tính z về xác suất rủi ro trong khoảng (0,1)",
+      "Hình 2-11: Các điểm khớp xương (keypoints) được YOLOv11-Pose ước lượng, dùng để phân tích tư thế và hành vi",
+      "Hình 2-12: Minh họa IoU giữa hai khung bao và cơ chế lọc trùng lặp Non-Maximum Suppression (NMS)",
+      "Hình 2-13: Các thành phần hình học được CIoU Loss xem xét: độ chồng lấp IoU",
+      "Hình 2-14: Confidence score sụt giảm tạm thời khi đối tượng bị che khuất một phần, sau đó phục hồi khi đối tượng xuất hiện trở lại",
+      "Hình 2-15: Vật thể nhỏ hơn một ô lưới trên feature map có stride lớn, dễ bị bỏ sót",
+      "Hình 2-16: Cùng một đối tượng trong ba điều kiện",
+      "Hình 2-17: Biểu đồ histogram vùng tối sau khi áp dụng CLAHE, tăng độ tương phản giúp lộ rõ chi tiết đối tượng",
+      "Hình 2-18: So sánh IoU giữa hai khung liên tiếp khi ảnh rõ nét so với khi bị nhòe do rung",
+      "Hình 2-19: Diễn biến ID Switch khi không và có kết hợp Kalman + Hungarian"
+    ],
+    "manual_numbered_tables": []
+  },
+  "term_counts": {
+    "YOLO11": 17,
+    "YOLOv11": 19,
+    "YOLO11s": 10,
+    "YOLOv11s": 0,
+    "YOLO11n-pose": 3,
+    "YOLOv11n-pose": 0,
+    "YOLOv11-Pose": 2,
+    "testcase": 38,
+    "test case": 0,
+    "test-case": 0,
+    "InsightFace": 11,
+    "Insightface": 0,
+    "ID Switch": 4,
+    "ID switch": 8
+  },
+  "suspicious_reference_lines": []
+}

@@ -1,4 +1,4 @@
-"""Fall detection based on a fast upright-to-lying transition."""
+"""Fall detection based on an upright-to-lying transition."""
 
 from __future__ import annotations
 
@@ -13,6 +13,12 @@ from core.tracker import TrackedObject
 _ARMING_LABELS = {"standing_still", "walking_slow", "running"}
 _RECOVERY_LABELS = _ARMING_LABELS | {"sitting"}
 _LYING_LABELS = {"lying", "changing_to_lying"}
+_OCCLUDED_LABELS = {
+    "unknown",
+    "getting_up",
+    "sitting_down",
+    "changing_posture",
+}
 
 
 @dataclass
@@ -29,6 +35,7 @@ class _FallCandidate:
     escalated_at: float | None = None
     next_reminder_at: float | None = None
     recovery_started_at: float | None = None
+    last_object: TrackedObject | None = None
 
 
 class FallDetector:
@@ -50,6 +57,10 @@ class FallDetector:
         self.pose_grace_seconds = max(
             0.0, float(cfg.get("pose_grace_seconds", 1))
         )
+        self.occlusion_grace_seconds = max(
+            0.0,
+            float(cfg.get("occlusion_grace_seconds", 60)),
+        )
         self.escalation_seconds = max(
             self.lying_alert_seconds,
             float(cfg.get("escalation_seconds", 45)),
@@ -67,6 +78,11 @@ class FallDetector:
         self.emergency_number = str(cfg.get("emergency_number", "115")).strip()
         self._states: dict[tuple[str, int], _FallCandidate] = {}
 
+    def reset_camera(self, camera_id: str) -> None:
+        """Discard fall candidates that belong to a restarted source."""
+        for key in [key for key in self._states if key[0] == camera_id]:
+            self._states.pop(key, None)
+
     def analyze(
         self,
         camera_id: str,
@@ -77,22 +93,19 @@ class FallDetector:
         if not self.enabled:
             return []
 
-        active_keys = {
-            (camera_id, obj.track_id)
-            for obj in tracked_objects
-            if obj.class_name == "person"
-        }
-        for key in [key for key in self._states if key[0] == camera_id and key not in active_keys]:
-            self._states.pop(key, None)
-
         now = time.monotonic()
         alerts: list[dict[str, Any]] = []
+        observed_keys: set[tuple[str, int]] = set()
         for obj in tracked_objects:
             if obj.class_name != "person" or obj.pose_label is None:
                 continue
             key = (camera_id, obj.track_id)
 
+            if obj.pose_label in _OCCLUDED_LABELS:
+                continue
+
             if obj.pose_label in _RECOVERY_LABELS:
+                observed_keys.add(key)
                 alerts.extend(
                     self._handle_recovery_pose(
                         key, camera_id, camera_name, obj, timestamp, now
@@ -101,6 +114,7 @@ class FallDetector:
                 continue
 
             if obj.pose_label in _LYING_LABELS:
+                observed_keys.add(key)
                 alert = self._handle_lying_pose(
                     key, camera_id, camera_name, obj, timestamp, now
                 )
@@ -115,8 +129,99 @@ class FallDetector:
                 and now - state.last_lying_at > self.pose_grace_seconds
             ):
                 self._states.pop(key, None)
+            observed_keys.add(key)
+
+        for key in [
+            key
+            for key in self._states
+            if key[0] == camera_id and key not in observed_keys
+        ]:
+            alert = self._handle_occlusion(
+                key,
+                camera_id,
+                camera_name,
+                timestamp,
+                now,
+            )
+            if alert is not None:
+                alerts.append(alert)
 
         return alerts
+
+    def _handle_occlusion(
+        self,
+        key: tuple[str, int],
+        camera_id: str,
+        camera_name: str,
+        timestamp: datetime,
+        now: float,
+    ) -> dict[str, Any] | None:
+        state = self._states.get(key)
+        if (
+            state is None
+            or state.became_lying_at is None
+            or state.last_lying_at is None
+            or state.last_object is None
+        ):
+            self._states.pop(key, None)
+            return None
+
+        if now - state.last_lying_at > self.occlusion_grace_seconds:
+            self._states.pop(key, None)
+            return None
+
+        down_seconds = now - state.became_lying_at
+        motion_ratio = self._recent_motion_ratio(state.last_object)
+        if state.initial_alerted_at is None:
+            if down_seconds < self.lying_alert_seconds:
+                return None
+            state.initial_alerted_at = now
+            return self._fall_alert(
+                camera_id,
+                camera_name,
+                state.last_object,
+                timestamp,
+                state,
+                down_seconds,
+                motion_ratio,
+                occluded=True,
+            )
+
+        if state.escalated_at is None:
+            if down_seconds < self.escalation_seconds:
+                return None
+            state.escalated_at = now
+            state.next_reminder_at = (
+                now + self.urgent_reminder_seconds
+                if self.urgent_reminder_seconds > 0
+                else None
+            )
+            return self._urgent_alert(
+                camera_id,
+                camera_name,
+                state.last_object,
+                timestamp,
+                state,
+                down_seconds,
+                motion_ratio,
+                reminder=False,
+                occluded=True,
+            )
+
+        if state.next_reminder_at is not None and now >= state.next_reminder_at:
+            state.next_reminder_at = now + self.urgent_reminder_seconds
+            return self._urgent_alert(
+                camera_id,
+                camera_name,
+                state.last_object,
+                timestamp,
+                state,
+                down_seconds,
+                motion_ratio,
+                reminder=True,
+                occluded=True,
+            )
+        return None
 
     def _handle_recovery_pose(
         self,
@@ -204,19 +309,24 @@ class FallDetector:
             if (
                 upright_seconds < self.min_upright_seconds
                 or transition_seconds > self.max_transition_seconds
-                or vertical_drop_ratio < self.min_vertical_drop_ratio
             ):
+                self._states.pop(key, None)
+                return None
+            if vertical_drop_ratio < self.min_vertical_drop_ratio:
+                if obj.pose_label == "changing_to_lying":
+                    return None
                 self._states.pop(key, None)
                 return None
 
             state.became_lying_at = now
             state.last_lying_at = now
             state.vertical_drop_ratio = vertical_drop_ratio
+            state.last_object = obj
             return None
 
         if (
             state.last_lying_at is not None
-            and now - state.last_lying_at > self.pose_grace_seconds
+            and now - state.last_lying_at > self.occlusion_grace_seconds
             and (
                 state.recovery_started_at is None
                 or now - state.recovery_started_at >= self.recovery_confirm_seconds
@@ -226,6 +336,7 @@ class FallDetector:
             return None
 
         state.last_lying_at = now
+        state.last_object = obj
         state.recovery_started_at = None
         down_seconds = now - state.became_lying_at
         motion_ratio = self._recent_motion_ratio(obj)
@@ -300,7 +411,18 @@ class FallDetector:
         state: _FallCandidate,
         down_seconds: float,
         motion_ratio: float,
+        *,
+        occluded: bool = False,
     ) -> dict[str, Any]:
+        details = (
+            f"Người này chuyển từ {state.pre_lying_label} sang nằm, sau đó bị che khuất "
+            f"hoặc mất dấu và chưa quan sát thấy đứng dậy sau {down_seconds:.0f} giây."
+            if occluded
+            else (
+                f"Người này chuyển từ {state.pre_lying_label} sang nằm và "
+                f"chưa đứng dậy sau {down_seconds:.0f} giây."
+            )
+        )
         return self._base_alert(
             "possible_fall",
             "critical",
@@ -313,13 +435,15 @@ class FallDetector:
             state,
             down_seconds,
             motion_ratio,
-            (
-                f"Người này chuyển nhanh từ {state.pre_lying_label} sang nằm và "
-                f"chưa đứng dậy sau {down_seconds:.0f} giây."
-            ),
+            details,
             self._emergency_action(),
             siren=True,
             threshold_seconds=self.lying_alert_seconds,
+            occluded=occluded,
+            visual_hold_seconds=max(
+                self.escalation_seconds,
+                self.occlusion_grace_seconds,
+            ),
         )
 
     def _urgent_alert(
@@ -332,12 +456,30 @@ class FallDetector:
         down_seconds: float,
         motion_ratio: float,
         reminder: bool,
+        *,
+        occluded: bool = False,
     ) -> dict[str, Any]:
-        title = (
-            "NHẮC LẠI: NGƯỜI NGÃ VẪN NẰM BẤT ĐỘNG"
-            if reminder
-            else "KHẨN CẤP: NGƯỜI NGÃ VẪN NẰM BẤT ĐỘNG"
-        )
+        if occluded:
+            title = (
+                "NHẮC LẠI: NGƯỜI CÓ THỂ BỊ NGÃ VẪN BỊ CHE KHUẤT"
+                if reminder
+                else "KHẨN CẤP: NGƯỜI CÓ THỂ BỊ NGÃ ĐANG BỊ CHE KHUẤT"
+            )
+            details = (
+                "Camera đã phát hiện chuyển tiếp sang tư thế nằm nhưng sau đó bị che khuất, mất "
+                f"tầm nhìn và chưa quan sát thấy người này hồi phục trong {down_seconds:.0f} "
+                "giây. Cần kiểm tra trực tiếp ngay."
+            )
+        else:
+            title = (
+                "NHẮC LẠI: NGƯỜI NGÃ VẪN NẰM BẤT ĐỘNG"
+                if reminder
+                else "KHẨN CẤP: NGƯỜI NGÃ VẪN NẰM BẤT ĐỘNG"
+            )
+            details = (
+                "Camera phát hiện một người ngã và nằm gần như bất động trong "
+                f"{down_seconds:.0f} giây. Đây có thể là tình trạng y tế khẩn cấp."
+            )
         return self._base_alert(
             "possible_unresponsive",
             "emergency",
@@ -350,13 +492,15 @@ class FallDetector:
             state,
             down_seconds,
             motion_ratio,
-            (
-                "Camera phát hiện một người ngã và nằm gần như bất động trong "
-                f"{down_seconds:.0f} giây. Đây có thể là tình trạng y tế khẩn cấp."
-            ),
+            details,
             self._emergency_action(),
             siren=True,
             threshold_seconds=self.escalation_seconds,
+            occluded=occluded,
+            visual_hold_seconds=max(
+                self.urgent_reminder_seconds,
+                self.occlusion_grace_seconds,
+            ),
         )
 
     def _recovery_alert(
@@ -405,9 +549,11 @@ class FallDetector:
         *,
         siren: bool,
         threshold_seconds: float,
+        occluded: bool = False,
+        visual_hold_seconds: float | None = None,
     ) -> dict[str, Any]:
         assert state.became_lying_at is not None
-        return {
+        alert = {
             "type": alert_type,
             "severity": severity,
             "title": title,
@@ -426,12 +572,17 @@ class FallDetector:
             "motion_ratio": round(motion_ratio, 3),
             "duration": round(down_seconds, 2),
             "threshold_seconds": threshold_seconds,
+            "occluded": occluded,
+            "last_known_bbox": list(obj.bbox_xyxy) if occluded else None,
             "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "emergency_number": self.emergency_number,
             "recommended_action": recommended_action,
             "siren": siren,
             "details": details,
         }
+        if visual_hold_seconds is not None:
+            alert["visual_hold_seconds"] = visual_hold_seconds
+        return alert
 
     def _emergency_action(self) -> str:
         emergency = (

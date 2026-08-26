@@ -1,0 +1,3 @@
+experiment_version,clip_id,group_id,split,video_path,camera_config_path,status
+priority-pilot-v2-single-participant-2026-08-18,P01_intrusion_negative_r2_low_light_side_oblique,intrusion_low_light_session,test,E:/SCT_Camera/tmp/intrusion_daylow_review_20260819_1/58606849029842367887.mp4,E:/SCT_Camera/tmp/intrusion_daylow_review_20260819_1/out.yaml,READY
+priority-pilot-v2-single-participant-2026-08-18,P01_intrusion_positive_r2_low_light_side_oblique,intrusion_low_light_session,test,E:/SCT_Camera/tmp/intrusion_daylow_review_20260819_1/91014796315081936208.mp4,E:/SCT_Camera/tmp/intrusion_daylow_review_20260819_1/in.yaml,READY

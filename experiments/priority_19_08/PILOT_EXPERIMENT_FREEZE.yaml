@@ -1,0 +1,43 @@
+experiment_version: priority-pilot-v2-single-participant-2026-08-18
+pilot_scope: single-participant deadline-safe pilot; not full-scale validation
+created_at_utc: '2026-08-18T12:30:35.007811+00:00'
+git_head: a7881f788252a1b6c681430f99d7d284719a8ee6
+git_worktree_clean: false
+hashes_authoritative_when_worktree_dirty: true
+python_version_at_generation: 3.10.11
+production_behavior_code_modified_for_pilot: false
+historical_logs_allowed: false
+participant_design:
+  participants:
+  - P01
+  participant_generalization_claimed: false
+  participant_disjoint_split_claimed: false
+  grouping_unit: recording session
+  development_sessions: 4
+  test_sessions: 4
+  validation_split: none; thresholds are frozen and not tuned
+semantics:
+  intrusion: Production alert type intrusion for confirmed-person line crossing direction
+    IN only.
+  line_crossing: Evaluation-only counter-delta instrumentation for both IN and OUT;
+    pilot positives use OUT.
+  polygon_intrusion: 'Inactive: IntrusionDetector.analyze does not call _analyze_zones.'
+runtime_file_sha256:
+  analytics/asset_watch.py: e444a2eae291a68fed43236b3cb08fd70efcd5765c697af278e936e2154afc75
+  analytics/behavior_engine.py: 2934d018f339be7e402be400d10f0a4bc9cb3a76b9da2ef073ea335a09d498d8
+  analytics/behavior_learning.py: 47a347501a2f0e2ec0936f372112d0f48ddb05b23d3b37957af9f0d7a43400d8
+  analytics/dwell_policy.py: 8d2a1e81bab6aa991c5610a4d24600fe92118a076c1bcee8c352ac2b82946b2e
+  analytics/intrusion.py: 2828a9433fb79554a5d0b2d0a9272b04a2f7f80c362a70e20c01bfe5b4fbd511
+  analytics/loitering.py: d3181045c29ed1662bd8bd151571e14f51d3c6ba016b7ecb42b6929ff1527b06
+  analytics/suspicious_stranger.py: d1d88bd0cdefbea036a2da917d2197c10cea634c0861b83bec36e1a6ddc0aafc
+  analytics/theft_behavior.py: 937319333558d12ab05a974b58ebb42c9235850e946d200d1093ed24a65ba1d9
+  analytics/zone.py: 2fce83d5cdea0cdb6f5a59a7f33caf2f90e5877f92394b0dbffd9ac28eafe0bc
+  core/detector.py: f9627029c805bb628d03d00358630d6056c7e1afd47a8cbb119a35e9a02b61b5
+  core/pose.py: be7287dde899563b5772dd4766b2d09b8b61dd1ee9e32e15316c161011a706bc
+  core/tracker.py: 9e65f8af78550c11bcc1712d44f32f27d679b1869010660350decd96a87dc5b1
+  config/settings.yaml: 74974bfec86951cabfd4cad98c46f962ca662bb85e3b1eb903e54ef78cffee2b
+  scripts/run_behavior_experiment.py: ef05be9ffcf646e201027c78153d9de6819b0c2b0587b1b856e6f41d64134417
+  scripts/evaluate_behavior_experiment.py: e2e94d3cb85a5066d11aa9265962c30dd936c56fb9e53a168e3d8806b9ad2998
+  scripts/derive_risk_labels_from_behavior.py: 588b51fc9e090cd1e968ff152dcdf95ae6dd2209d1cf8540bbe789377a154a91
+  yolo11s.pt: 85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5
+  yolo11n-pose.pt: 869e83fcdffdc7371fa4e34cd8e51c838cc729571d1635e5141e3075e9319dc0

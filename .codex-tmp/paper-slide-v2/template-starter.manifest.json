@@ -1,0 +1,23 @@
+{
+  "sourcePptx": "E:\\Slide_Cong_bo_khoa_hoc_FDSE.pptx",
+  "mapPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-frame-map.json",
+  "output": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-starter.pptx",
+  "outputBytes": 1165146,
+  "sourceSlideCount": 1,
+  "slideCount": 1,
+  "previewDir": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-starter-preview",
+  "layoutDir": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-starter-layout",
+  "slides": [
+    {
+      "outputSlide": 1,
+      "sourceSlide": 1,
+      "narrativeRole": "publication achievement proof",
+      "reuseMode": "duplicate-slide",
+      "editTargetCount": 3,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-starter-preview\\starter-slide-01.png",
+      "previewRelativePath": "template-starter-preview/starter-slide-01.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-starter-layout\\starter-slide-01.layout.json",
+      "layoutRelativePath": "template-starter-layout/starter-slide-01.layout.json"
+    }
+  ]
+}

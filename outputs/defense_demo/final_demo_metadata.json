@@ -1,0 +1,38 @@
+{
+  "video": "E:\\SCT_Camera\\outputs\\defense_demo\\SCT_Camera_Final_Defense_Demo.mp4",
+  "codec_fourcc": "h264",
+  "width": 1280,
+  "height": 720,
+  "fps": 25.0,
+  "frames": 1874,
+  "duration_seconds": 74.96,
+  "dashboard_duration_seconds": 27.48,
+  "decoded_sample_frames": [
+    12,
+    125,
+    300,
+    500,
+    662,
+    712,
+    1062,
+    1824
+  ],
+  "contact_sheet": "E:\\SCT_Camera\\outputs\\defense_demo\\final_demo_contact_sheet.jpg",
+  "encoder": "H.264 (Media Foundation)",
+  "dashboard_recording": "C:\\Users\\Admin\\AppData\\Local\\Packages\\Microsoft.ScreenSketch_8wekyb3d8bbwe\\TempState\\Recordings\\20260823-1017-57.0088274.mp4",
+  "dashboard_trim_seconds": [
+    8.0,
+    35.5
+  ],
+  "dashboard_source_fps": 30.0,
+  "accepted_demo": "E:\\SCT_Camera\\outputs\\defense_demo\\SCT_Camera_Complete_System_Demo.mp4",
+  "accepted_demo_start_seconds": 20.0,
+  "accepted_demo_source_fps": 25.0,
+  "accepted_demo_frames_appended": 1187,
+  "behavior_scenarios": [
+    "line_crossing",
+    "intrusion",
+    "suspicious_theft_behavior"
+  ],
+  "network_required_for_playback": false
+}

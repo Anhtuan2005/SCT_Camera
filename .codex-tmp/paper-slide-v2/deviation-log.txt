@@ -1,0 +1,6 @@
+Output slide 1 / source slide 1:
+- Replaced the English status pill with Vietnamese text.
+- Removed repeated acceptance wording by using a concise hierarchy: status, venue, thesis origin, publication venue.
+- Tightened vertical spacing in the left column.
+- Standardized body and orange callout text to the same 30 px base size while preserving their inherited color and weight roles.
+

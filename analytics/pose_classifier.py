@@ -94,6 +94,11 @@ class PoseClassifier:
 
         self._states: dict[tuple[str, int], _PoseTrackState] = {}
 
+    def reset_camera(self, camera_id: str) -> None:
+        """Discard pose history that belongs to a restarted source."""
+        for key in [key for key in self._states if key[0] == camera_id]:
+            self._states.pop(key, None)
+
     def label_objects(
         self,
         camera_id: str,

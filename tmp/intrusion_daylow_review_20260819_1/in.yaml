@@ -1,0 +1,16 @@
+experiment_version: priority-pilot-v2-single-participant-2026-08-18
+clip_id: P01_intrusion_positive_r2_low_light_side_oblique
+camera_id: intrusion_low_light_session
+name: Intrusion low-light IN
+source: E:/SCT_Camera/tmp/intrusion_daylow_review_20260819_1/91014796315081936208.mp4
+frame_rotation: cw90
+auto_global_zone: false
+unknown_person_policy: assume_stranger
+zones: []
+lines:
+- id: doorway
+  name: Doorway
+  point1: [0.30, 0.16]
+  point2: [0.75, 0.16]
+  direction: forward
+

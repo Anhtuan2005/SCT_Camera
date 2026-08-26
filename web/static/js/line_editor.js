@@ -1,4 +1,19 @@
 (function () {
+  function directionForPoint(point1, point2, point, fallback = "forward") {
+    const dx = point2[0] - point1[0];
+    const dy = point2[1] - point1[1];
+    const length = Math.hypot(dx, dy);
+    if (length < 1) return fallback;
+    const distance = (dx * (point[1] - point1[1]) - dy * (point[0] - point1[0])) / length;
+    if (Math.abs(distance) < 6) return fallback;
+    return distance > 0 ? "forward" : "reverse";
+  }
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = { directionForPoint };
+  }
+  if (typeof document === "undefined") return;
+
   const detail = document.querySelector("[data-camera-id]");
   const canvas = document.getElementById("lineCanvas");
   const image = document.getElementById("editorStream");
@@ -10,9 +25,15 @@
   let current = [];
   let selectedLineId = null;
   let draggingIndex = -1;
+  let draggingDirection = false;
   let draftDirty = false;
   const saveButton = document.getElementById("saveLineButton");
   const draftStatus = document.getElementById("lineDraftStatus");
+  const directionSelect = document.getElementById("lineDirection");
+
+  canvas.style.cursor = "crosshair";
+  canvas.style.touchAction = "none";
+  canvas.title = "Drag an arrow across its line to change the IN side";
 
   function resize() {
     const rect = image.getBoundingClientRect();
@@ -44,10 +65,11 @@
   function draw() {
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     for (const line of lines) {
+      if (line.id === selectedLineId && current.length === 2) continue;
       drawLine(line.point1, line.point2, line.id === selectedLineId ? "#72d79b" : "rgba(160,175,185,.65)", line.direction);
     }
     if (current.length === 1) drawPoint(current[0], "#72d79b");
-    if (current.length === 2) drawLine(current[0], current[1], "#72d79b", document.getElementById("lineDirection").value);
+    if (current.length === 2) drawLine(current[0], current[1], "#72d79b", directionSelect.value);
   }
 
   function setDraftDirty(dirty) {
@@ -65,7 +87,19 @@
     current = [];
     selectedLineId = null;
     document.getElementById("lineName").value = "New Line";
-    document.getElementById("lineDirection").value = "forward";
+    directionSelect.value = "forward";
+    setDraftDirty(false);
+    draw();
+  }
+
+  function loadLine(line) {
+    selectedLineId = line.id;
+    current = [
+      [Number(line.point1[0]), Number(line.point1[1])],
+      [Number(line.point2[0]), Number(line.point2[1])],
+    ];
+    document.getElementById("lineName").value = line.name || "Line";
+    directionSelect.value = line.direction || "forward";
     setDraftDirty(false);
     draw();
   }
@@ -83,19 +117,24 @@
     drawPoint(point1, color);
     drawPoint(point2, color);
 
+    const arrow = arrowGeometry(point1, point2, direction);
+    drawArrow(arrow.start[0], arrow.start[1], arrow.tip[0], arrow.tip[1], color);
+    ctx.restore();
+  }
+
+  function arrowGeometry(point1, point2, direction) {
+    const [x1, y1] = toCanvas(point1);
+    const [x2, y2] = toCanvas(point2);
     const mx = (x1 + x2) / 2;
     const my = (y1 + y2) / 2;
     const dx = x2 - x1;
     const dy = y2 - y1;
     const length = Math.max(1, Math.hypot(dx, dy));
-    let nx = -dy / length;
-    let ny = dx / length;
-    if (direction === "reverse") {
-      nx *= -1;
-      ny *= -1;
-    }
-    drawArrow(mx, my, mx + nx * 44, my + ny * 44, color);
-    ctx.restore();
+    const sign = direction === "reverse" ? -1 : 1;
+    return {
+      start: [mx, my],
+      tip: [mx + (-dy / length) * 44 * sign, my + (dx / length) * 44 * sign],
+    };
   }
 
   function drawPoint(point, color) {
@@ -143,12 +182,49 @@
     return best;
   }
 
+  function distanceToSegment(point, start, end) {
+    const dx = end[0] - start[0];
+    const dy = end[1] - start[1];
+    const lengthSquared = dx * dx + dy * dy;
+    const t = lengthSquared
+      ? Math.max(0, Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / lengthSquared))
+      : 0;
+    return Math.hypot(point[0] - (start[0] + t * dx), point[1] - (start[1] + t * dy));
+  }
+
+  function directionTargetAt(point) {
+    const candidates = [];
+    if (current.length === 2) {
+      candidates.push({
+        isCurrent: true,
+        line: { point1: current[0], point2: current[1], direction: directionSelect.value },
+      });
+    }
+    for (const line of lines) {
+      if (line.id !== selectedLineId) candidates.push({ isCurrent: false, line });
+    }
+    const canvasPoint = toCanvas(point);
+    return candidates.find(({ line }) => {
+      const arrow = arrowGeometry(line.point1, line.point2, line.direction || "forward");
+      return distanceToSegment(canvasPoint, arrow.start, arrow.tip) <= 16;
+    });
+  }
+
   canvas.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     const point = pointer(event);
     const endpoint = nearestEndpoint(point);
     if (endpoint >= 0) {
       draggingIndex = endpoint;
+      canvas.style.cursor = "grabbing";
+      canvas.setPointerCapture(event.pointerId);
+      return;
+    }
+    const directionTarget = directionTargetAt(point);
+    if (directionTarget) {
+      if (!directionTarget.isCurrent) loadLine(directionTarget.line);
+      draggingDirection = true;
+      canvas.style.cursor = "grabbing";
       canvas.setPointerCapture(event.pointerId);
       return;
     }
@@ -160,17 +236,40 @@
   });
 
   canvas.addEventListener("pointermove", (event) => {
-    if (draggingIndex < 0) return;
-    current[draggingIndex] = pointer(event);
-    setDraftDirty(true);
-    draw();
+    const point = pointer(event);
+    if (draggingDirection) {
+      const nextDirection = directionForPoint(
+        toCanvas(current[0]),
+        toCanvas(current[1]),
+        toCanvas(point),
+        directionSelect.value
+      );
+      if (nextDirection !== directionSelect.value) {
+        directionSelect.value = nextDirection;
+        setDraftDirty(true);
+        draw();
+      }
+      return;
+    }
+    if (draggingIndex >= 0) {
+      current[draggingIndex] = point;
+      setDraftDirty(true);
+      draw();
+      return;
+    }
+    canvas.style.cursor = nearestEndpoint(point) >= 0 || directionTargetAt(point) ? "grab" : "crosshair";
   });
 
-  canvas.addEventListener("pointerup", () => {
+  function stopDragging() {
     draggingIndex = -1;
-  });
+    draggingDirection = false;
+    canvas.style.cursor = "crosshair";
+  }
 
-  document.getElementById("lineDirection")?.addEventListener("change", () => {
+  canvas.addEventListener("pointerup", stopDragging);
+  canvas.addEventListener("pointercancel", stopDragging);
+
+  directionSelect?.addEventListener("change", () => {
     setDraftDirty(true);
     draw();
   });
@@ -190,7 +289,7 @@
       name: document.getElementById("lineName").value || "Line",
       point1: current[0].map(round),
       point2: current[1].map(round),
-      direction: document.getElementById("lineDirection").value,
+      direction: directionSelect.value,
     };
     const saved = await window.SCT.request(`/api/cameras/${encodeURIComponent(cameraId)}/lines`, {
       method: "POST",
@@ -208,15 +307,7 @@
     if (loadButton) {
       const line = lines.find((item) => item.id === loadButton.dataset.loadLine);
       if (!line) return;
-      selectedLineId = line.id;
-      current = [
-        [Number(line.point1[0]), Number(line.point1[1])],
-        [Number(line.point2[0]), Number(line.point2[1])],
-      ];
-      document.getElementById("lineName").value = line.name || "Line";
-      document.getElementById("lineDirection").value = line.direction || "forward";
-      setDraftDirty(false);
-      draw();
+      loadLine(line);
     }
     if (deleteButton) {
       await window.SCT.request(

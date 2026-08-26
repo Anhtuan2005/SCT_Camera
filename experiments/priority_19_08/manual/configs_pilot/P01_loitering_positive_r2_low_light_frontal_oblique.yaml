@@ -1,0 +1,33 @@
+experiment_version: priority-pilot-v2-single-participant-2026-08-18
+clip_id: P01_loitering_positive_r2_low_light_frontal_oblique
+participant_id: P01
+repetition: 2
+session_id: test_r2_low_light_frontal_oblique
+expected_behavior: loitering
+expected_label: positive
+expected_direction: ''
+camera_id: pilot_P01_loitering_positive_r2_low_light_frontal_oblique
+name: Pilot P01_loitering_positive_r2_low_light_frontal_oblique
+source: experiments/priority_19_08/manual/videos_pilot/test/test_r2_low_light_frontal_oblique/P01_loitering_positive_r2_low_light_frontal_oblique.mp4
+frame_rotation: cw90
+auto_global_zone: false
+unknown_person_policy: assume_stranger
+manual_confirmation:
+  status: CONFIRMED_BY_AI_VISUAL_QA
+  basis: Accepted recordings; fixed geometry; no threshold or test-output tuning.
+  do_not_change: experiment_version, behavior thresholds, expected behavior/label
+zones:
+- id: pilot_loitering
+  name: Pilot loitering
+  type: loitering
+  polygon:
+  - - 0.02
+    - 0.02
+  - - 0.98
+    - 0.02
+  - - 0.98
+    - 0.98
+  - - 0.02
+    - 0.98
+  threshold_seconds: 20
+lines: []

@@ -1,0 +1,432 @@
+{
+  "schema_version": 1,
+  "events": {
+    "path": "E:\\SCT_Camera\\data\\behavior_events.jsonl",
+    "size_bytes": 52785992,
+    "sha256": "f1a2ea7528e9b08fcd49085e825e89ab62615bcdfcd30670840cb3dc51f80d32",
+    "records": 36674,
+    "unique_event_ids": 36674,
+    "missing_event_ids": 0,
+    "duplicate_event_ids": 0,
+    "duplicate_records_beyond_first": 0,
+    "invalid_json_lines": [],
+    "timestamp_min": "2026-06-10T22:11:28.580663+07:00",
+    "timestamp_max": "2026-08-15T10:14:27.791932+07:00",
+    "alert_type_counts": {
+      "stranger_detected": 25577,
+      "intrusion": 3511,
+      "suspicious_theft_behavior": 2874,
+      "asset_missing": 2842,
+      "possible_fall": 568,
+      "line_crossing": 506,
+      "possible_unresponsive": 427,
+      "loitering": 214,
+      "fall_recovery": 100,
+      "suspicious_stranger": 54,
+      "asset_removed": 1
+    },
+    "camera_counts": {
+      "suspect_f99ee2": 12000,
+      "intrusion_testing_395d88": 6968,
+      "motorcycle_73741f": 5304,
+      "bike_stole_dcd818": 4155,
+      "motorcycle_016324": 2286,
+      "imou_camera": 2150,
+      "fainting_8b3cad": 1971,
+      "intrusion_c2741a": 976,
+      "motorcycle_808541": 850,
+      "stealing_e23424": 7,
+      "bike_stole_185a6e": 7
+    },
+    "camera_alert_type_counts": {
+      "bike_stole_185a6e": {
+        "asset_missing": 1,
+        "intrusion": 6
+      },
+      "bike_stole_dcd818": {
+        "asset_missing": 106,
+        "intrusion": 571,
+        "loitering": 171,
+        "stranger_detected": 3266,
+        "suspicious_theft_behavior": 41
+      },
+      "fainting_8b3cad": {
+        "fall_recovery": 97,
+        "possible_fall": 552,
+        "possible_unresponsive": 424,
+        "stranger_detected": 898
+      },
+      "imou_camera": {
+        "asset_missing": 47,
+        "fall_recovery": 3,
+        "intrusion": 166,
+        "loitering": 40,
+        "possible_fall": 16,
+        "possible_unresponsive": 3,
+        "stranger_detected": 1835,
+        "suspicious_stranger": 40
+      },
+      "intrusion_c2741a": {
+        "asset_missing": 17,
+        "intrusion": 7,
+        "stranger_detected": 937,
+        "suspicious_stranger": 3,
+        "suspicious_theft_behavior": 12
+      },
+      "intrusion_testing_395d88": {
+        "asset_missing": 36,
+        "intrusion": 2484,
+        "line_crossing": 506,
+        "stranger_detected": 3906,
+        "suspicious_stranger": 11,
+        "suspicious_theft_behavior": 25
+      },
+      "motorcycle_016324": {
+        "asset_missing": 183,
+        "stranger_detected": 1151,
+        "suspicious_theft_behavior": 952
+      },
+      "motorcycle_73741f": {
+        "asset_missing": 2399,
+        "asset_removed": 1,
+        "stranger_detected": 1067,
+        "suspicious_theft_behavior": 1837
+      },
+      "motorcycle_808541": {
+        "asset_missing": 24,
+        "stranger_detected": 819,
+        "suspicious_theft_behavior": 7
+      },
+      "stealing_e23424": {
+        "intrusion": 7
+      },
+      "suspect_f99ee2": {
+        "asset_missing": 29,
+        "intrusion": 270,
+        "loitering": 3,
+        "stranger_detected": 11698
+      }
+    },
+    "embedded_label_counts": {}
+  },
+  "external_labels": {
+    "path": "E:\\SCT_Camera\\data\\behavior_labels.csv",
+    "size_bytes": 728745,
+    "sha256": "ca605f66c9e37367e36e542cc08dc72a92af836e254a076d8c4535f3ce40268f",
+    "rows": 18218,
+    "unique_event_ids": 18218,
+    "blank_rows": 18218,
+    "nonblank_rows": 0,
+    "label_counts": {},
+    "orphan_event_ids": 0,
+    "events_without_label_row": 18456
+  },
+  "risk_dataset": {
+    "recognized_labeled_samples": 0,
+    "positive_samples": 0,
+    "negative_samples": 0,
+    "unrecognized_labeled_samples": 0,
+    "model_file_exists": false,
+    "evaluation_feasible": false
+  },
+  "features": {
+    "expected_count": 22,
+    "expected_names": [
+      "duration",
+      "threshold_seconds",
+      "duration_ratio",
+      "near_seconds",
+      "score",
+      "score_ratio",
+      "pacing_passes",
+      "object_confidence",
+      "bbox_area_ratio",
+      "path_length_ratio",
+      "net_distance_ratio",
+      "displacement_ratio",
+      "speed_ratio",
+      "has_vehicle_signal",
+      "vehicle_started_moving",
+      "moving_same_direction",
+      "pose_push_contact",
+      "object_count",
+      "zone_configured",
+      "is_person",
+      "is_vehicle",
+      "is_asset"
+    ],
+    "observed_names": [
+      "bbox_area_ratio",
+      "displacement_ratio",
+      "duration",
+      "duration_ratio",
+      "has_vehicle_signal",
+      "is_asset",
+      "is_person",
+      "is_vehicle",
+      "moving_same_direction",
+      "near_seconds",
+      "net_distance_ratio",
+      "object_confidence",
+      "object_count",
+      "pacing_passes",
+      "path_length_ratio",
+      "pose_push_contact",
+      "score",
+      "score_ratio",
+      "speed_ratio",
+      "threshold_seconds",
+      "vehicle_started_moving",
+      "zone_configured"
+    ],
+    "rows_with_feature_mapping": 36674,
+    "rows_complete_22": 36674,
+    "missing_feature_counts": {},
+    "value_statistics": {
+      "duration": {
+        "count": 36674,
+        "nonzero": 1351,
+        "min": 0.0,
+        "max": 191.1,
+        "mean": 1.10498228
+      },
+      "threshold_seconds": {
+        "count": 36674,
+        "nonzero": 1351,
+        "min": 0.0,
+        "max": 180.0,
+        "mean": 1.05388013
+      },
+      "duration_ratio": {
+        "count": 36674,
+        "nonzero": 1351,
+        "min": 0.0,
+        "max": 20.12666666666667,
+        "mean": 0.05170947
+      },
+      "near_seconds": {
+        "count": 36674,
+        "nonzero": 2874,
+        "min": 0.0,
+        "max": 20.1,
+        "mean": 0.79654524
+      },
+      "score": {
+        "count": 36674,
+        "nonzero": 2874,
+        "min": 0.0,
+        "max": 5.0,
+        "mean": 0.18688989
+      },
+      "score_ratio": {
+        "count": 36674,
+        "nonzero": 2874,
+        "min": 0.0,
+        "max": 2.5,
+        "mean": 0.09344495
+      },
+      "pacing_passes": {
+        "count": 36674,
+        "nonzero": 977,
+        "min": 0.0,
+        "max": 2.0,
+        "mean": 0.02666739
+      },
+      "object_confidence": {
+        "count": 36674,
+        "nonzero": 33728,
+        "min": 0.0,
+        "max": 0.947265625,
+        "mean": 0.55581767
+      },
+      "bbox_area_ratio": {
+        "count": 36674,
+        "nonzero": 33728,
+        "min": 0.0,
+        "max": 0.656024478697639,
+        "mean": 0.07486753
+      },
+      "path_length_ratio": {
+        "count": 36674,
+        "nonzero": 24701,
+        "min": 0.0,
+        "max": 0.987757407764594,
+        "mean": 0.05932528
+      },
+      "net_distance_ratio": {
+        "count": 36674,
+        "nonzero": 24701,
+        "min": 0.0,
+        "max": 0.6997232427035964,
+        "mean": 0.03385352
+      },
+      "displacement_ratio": {
+        "count": 36674,
+        "nonzero": 24701,
+        "min": 0.0,
+        "max": 0.6997232427035964,
+        "mean": 0.03619027
+      },
+      "speed_ratio": {
+        "count": 36674,
+        "nonzero": 24701,
+        "min": 0.0,
+        "max": 0.21027485063286275,
+        "mean": 0.00475006
+      },
+      "has_vehicle_signal": {
+        "count": 36674,
+        "nonzero": 2874,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.07836614
+      },
+      "vehicle_started_moving": {
+        "count": 36674,
+        "nonzero": 146,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.00398102
+      },
+      "moving_same_direction": {
+        "count": 36674,
+        "nonzero": 1035,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.02822163
+      },
+      "pose_push_contact": {
+        "count": 36674,
+        "nonzero": 2798,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.07629383
+      },
+      "object_count": {
+        "count": 36674,
+        "nonzero": 36462,
+        "min": 0.0,
+        "max": 17.0,
+        "mean": 4.18367236
+      },
+      "zone_configured": {
+        "count": 36674,
+        "nonzero": 11930,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.32529858
+      },
+      "is_person": {
+        "count": 36674,
+        "nonzero": 33798,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.92157932
+      },
+      "is_vehicle": {
+        "count": 36674,
+        "nonzero": 2823,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.07697551
+      },
+      "is_asset": {
+        "count": 36674,
+        "nonzero": 2866,
+        "min": 0.0,
+        "max": 1.0,
+        "mean": 0.07814801
+      }
+    },
+    "distinct_feature_vectors": 20786,
+    "records_in_repeated_feature_vectors": 19414,
+    "duplicate_feature_records_beyond_first": 15888
+  },
+  "videos": [
+    {
+      "path": "E:\\Recording 2026-08-13 230208.mp4",
+      "exists": true,
+      "readable": true,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "frame_count": 2730,
+      "duration_seconds": 91.0,
+      "size_bytes": 27686092,
+      "sha256": "313723c0e4c2d43eceaa12f10136ed2c2ef3df1f99dc049b73755fe275a9b4da"
+    },
+    {
+      "path": "E:\\65ac3594-5c95-4908-909b-3ae28db47e60.mp4",
+      "exists": true,
+      "readable": true,
+      "width": 1648,
+      "height": 720,
+      "fps": 17.948,
+      "frame_count": 787,
+      "duration_seconds": 43.848,
+      "size_bytes": 15547336,
+      "sha256": "4b39aa6745e04740c140a02dfa3dd03061ec1f44c87f81b3dae63923fe965dc1"
+    },
+    {
+      "path": "E:\\7856352689065780164.mp4",
+      "exists": true,
+      "readable": true,
+      "width": 1280,
+      "height": 720,
+      "fps": 24.908,
+      "frame_count": 1572,
+      "duration_seconds": 63.113,
+      "size_bytes": 20321420,
+      "sha256": "3c4b851c4c6d7923d975c14518670a38f19242d7d792d4ffc264471fb517d6b7"
+    },
+    {
+      "path": "E:\\Recording 2026-07-11 113042.mp4",
+      "exists": true,
+      "readable": true,
+      "width": 1918,
+      "height": 1078,
+      "fps": 30.0,
+      "frame_count": 2583,
+      "duration_seconds": 86.1,
+      "size_bytes": 57694386,
+      "sha256": "aef6777ccb703b1acbbd96405d59755577646ea7dab7b746ce3ad274677353e6"
+    },
+    {
+      "path": "E:\\Screen Recording 2026-05-31 190819.mp4",
+      "exists": true,
+      "readable": true,
+      "width": 1050,
+      "height": 584,
+      "fps": 30.0,
+      "frame_count": 880,
+      "duration_seconds": 29.333,
+      "size_bytes": 9112042,
+      "sha256": "dd895b4c00e06a0e03e1804c0527d94271c11d48d4ce2bd344a3027584fc7ddd"
+    },
+    {
+      "path": "E:\\SUS.mp4",
+      "exists": true,
+      "readable": true,
+      "width": 1048,
+      "height": 582,
+      "fps": 30.0,
+      "frame_count": 1432,
+      "duration_seconds": 47.733,
+      "size_bytes": 17129271,
+      "sha256": "1d29f037e5a71d9a304cfa6bc0f7eeff45b0d81a4f255cabd264aec32b91c86c"
+    }
+  ],
+  "database": {
+    "path": "E:\\SCT_Camera\\data\\sct_camera.db",
+    "exists": true,
+    "size_bytes": 27205632,
+    "sha256": "df41e62640d9212f26e0ad9a3f1d69896011b29c730c524c468bdc347dd0c85e",
+    "row_counts": {
+      "alerts": 12208,
+      "behavior_events": 0,
+      "behavior_labels": 0,
+      "video_clips": 0,
+      "alert_clips": 0
+    }
+  }
+}

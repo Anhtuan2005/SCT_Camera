@@ -1,0 +1,99 @@
+{
+  "sourcePptx": "E:\\Slide_Cong_bo_khoa_hoc_FDSE.pptx",
+  "workspace": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2",
+  "outDir": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-inspect",
+  "generatedAt": "2026-08-25T17:34:02.350Z",
+  "slideCount": 1,
+  "slideArtifacts": [
+    {
+      "slide": 1,
+      "previewPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-inspect\\source-slides\\source-slide-01.png",
+      "previewRelativePath": "template-inspect/source-slides/source-slide-01.png",
+      "layoutPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-inspect\\layouts\\source-slide-01.layout.json",
+      "layoutRelativePath": "template-inspect/layouts/source-slide-01.layout.json"
+    }
+  ],
+  "inspectPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-inspect\\template-inspect.ndjson",
+  "inspectRelativePath": "template-inspect/template-inspect.ndjson",
+  "inspectTruncated": false,
+  "inspectMetadata": {
+    "revision": "pyjqdd",
+    "target": {
+      "id": "pr/fm4mae"
+    },
+    "kind": {
+      "requested": "slide,textbox,shape,image,table,chart",
+      "tokens": [
+        "slide",
+        "textbox",
+        "shape",
+        "image",
+        "table",
+        "chart"
+      ]
+    },
+    "include": {
+      "tokens": []
+    },
+    "exclude": {
+      "tokens": []
+    },
+    "notices": []
+  },
+  "extractedMedia": [
+    {
+      "entry": "ppt/media/image.jpeg",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-inspect\\assets\\ppt\\media\\image.jpeg",
+      "relativePath": "template-inspect/assets/ppt/media/image.jpeg",
+      "bytes": 21932
+    },
+    {
+      "entry": "ppt/media/image.png",
+      "path": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-inspect\\assets\\ppt\\media\\image.png",
+      "relativePath": "template-inspect/assets/ppt/media/image.png",
+      "bytes": 109130
+    }
+  ],
+  "fonts": [
+    "+mj-lt",
+    "+mn-lt",
+    "Angsana New",
+    "Arial",
+    "Arial Bold",
+    "Calibri",
+    "Cordia New",
+    "DaunPenh",
+    "DokChampa",
+    "Estrangelo Edessa",
+    "Euphemia",
+    "Gautami",
+    "Iskoola Pota",
+    "Kalinga",
+    "Kartika",
+    "Latha",
+    "MV Boli",
+    "Mangal",
+    "Microsoft Himalaya",
+    "Microsoft Uighur",
+    "Microsoft Yi Baiti",
+    "Mongolian Baiti",
+    "MoolBoran",
+    "Nyala",
+    "Plantagenet Cherokee",
+    "Raavi",
+    "Shruti",
+    "Times New Roman",
+    "Tunga",
+    "Vrinda",
+    "宋体",
+    "新細明體",
+    "맑은 고딕",
+    "ＭＳ Ｐゴシック"
+  ],
+  "packageParts": {
+    "mediaCount": 2,
+    "slideXmlCount": 1,
+    "chartCount": 0,
+    "tableSlideCount": 0
+  }
+}

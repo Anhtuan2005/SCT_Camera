@@ -1,0 +1,21 @@
+experiment_version,clip_id,behavior,frame_rotation,geometry,thresholds_changed,model_output_used_for_tuning,status
+priority-pilot-v2-single-participant-2026-08-18,P01_intrusion_positive_r1_daylight_frontal_oblique,intrusion,cw90,"doorway line (0.30,0.16)-(0.75,0.16), forward",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_intrusion_negative_r1_low_light_side_oblique,intrusion,cw90,"doorway line (0.30,0.16)-(0.75,0.16), forward",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_loitering_positive_r1_daylight_side_oblique,loitering,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_loitering_negative_r1_low_light_frontal_oblique,loitering,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_suspicious_behavior_positive_r1_daylight_frontal_oblique,suspicious_behavior,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_suspicious_behavior_negative_r1_low_light_side_oblique,suspicious_behavior,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_theft_positive_r1_daylight_side_oblique,theft,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_theft_negative_r1_low_light_frontal_oblique,theft,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_line_crossing_positive_r1_daylight_frontal_oblique,line_crossing,cw90,"doorway line (0.30,0.16)-(0.75,0.16), forward",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_line_crossing_negative_r1_low_light_side_oblique,line_crossing,cw90,"doorway line (0.30,0.16)-(0.75,0.16), forward",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_intrusion_positive_r2_low_light_side_oblique,intrusion,cw90,"doorway line (0.30,0.16)-(0.75,0.16), forward",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_intrusion_negative_r2_daylight_frontal_oblique,intrusion,cw90,"doorway line (0.30,0.16)-(0.75,0.16), forward",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_loitering_positive_r2_low_light_frontal_oblique,loitering,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_loitering_negative_r2_daylight_side_oblique,loitering,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_suspicious_behavior_positive_r2_low_light_side_oblique,suspicious_behavior,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_suspicious_behavior_negative_r2_daylight_frontal_oblique,suspicious_behavior,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_theft_positive_r2_low_light_frontal_oblique,theft,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_theft_negative_r2_daylight_side_oblique,theft,cw90,"full visible room polygon (0.02,0.02)-(0.98,0.98)",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_line_crossing_positive_r2_low_light_side_oblique,line_crossing,cw90,"doorway line (0.30,0.16)-(0.75,0.16), forward",NO,NO,CONFIRMED_BY_AI_VISUAL_QA
+priority-pilot-v2-single-participant-2026-08-18,P01_line_crossing_negative_r2_daylight_frontal_oblique,line_crossing,cw90,"doorway line (0.30,0.16)-(0.75,0.16), forward",NO,NO,CONFIRMED_BY_AI_VISUAL_QA

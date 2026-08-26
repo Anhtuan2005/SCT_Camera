@@ -1,0 +1,33 @@
+experiment_version: priority-pilot-v2-single-participant-2026-08-18
+clip_id: P01_suspicious_behavior_positive_r2_low_light_side_oblique
+participant_id: P01
+repetition: 2
+session_id: test_r2_low_light_side_oblique
+expected_behavior: suspicious_behavior
+expected_label: positive
+expected_direction: ''
+camera_id: pilot_P01_suspicious_behavior_positive_r2_low_light_side_oblique
+name: Pilot P01_suspicious_behavior_positive_r2_low_light_side_oblique
+source: experiments/priority_19_08/manual/videos_pilot/test/test_r2_low_light_side_oblique/P01_suspicious_behavior_positive_r2_low_light_side_oblique.mp4
+frame_rotation: cw90
+auto_global_zone: false
+unknown_person_policy: assume_stranger
+manual_confirmation:
+  status: CONFIRMED_BY_AI_VISUAL_QA
+  basis: Accepted recordings; fixed geometry; no threshold or test-output tuning.
+  do_not_change: experiment_version, behavior thresholds, expected behavior/label
+zones:
+- id: pilot_stranger_watch
+  name: Pilot stranger_watch
+  type: stranger_watch
+  polygon:
+  - - 0.02
+    - 0.02
+  - - 0.98
+    - 0.02
+  - - 0.98
+    - 0.98
+  - - 0.02
+    - 0.98
+  threshold_seconds: 180
+lines: []

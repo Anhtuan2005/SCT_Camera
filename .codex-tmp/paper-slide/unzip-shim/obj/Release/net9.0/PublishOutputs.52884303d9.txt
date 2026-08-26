@@ -1,0 +1,5 @@
+E:\SCT_Camera\.codex-tmp\paper-slide\unzip-bin\unzip.exe
+E:\SCT_Camera\.codex-tmp\paper-slide\unzip-bin\unzip.dll
+E:\SCT_Camera\.codex-tmp\paper-slide\unzip-bin\unzip.deps.json
+E:\SCT_Camera\.codex-tmp\paper-slide\unzip-bin\unzip.runtimeconfig.json
+E:\SCT_Camera\.codex-tmp\paper-slide\unzip-bin\unzip.pdb

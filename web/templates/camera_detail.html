@@ -99,6 +99,7 @@
             <option value="forward">Forward</option>
             <option value="reverse">Reverse</option>
           </select>
+          <small>Drag the arrow across the line to change the IN side.</small>
         </label>
         <div class="editor-save-row">
           <span class="draft-status" id="lineDraftStatus" role="status">Saved</span>
@@ -138,6 +139,6 @@
 {% block scripts %}
   {% if camera %}
   <script src="/static/js/roi_editor.js?v=roi-8"></script>
-  <script src="/static/js/line_editor.js?v=line-2"></script>
+  <script src="/static/js/line_editor.js?v=line-3"></script>
   {% endif %}
 {% endblock %}

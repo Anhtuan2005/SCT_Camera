@@ -1,0 +1,13 @@
+experiment_version,clip_id,group_id,split,behavior,raw_alert_type,behavior_event_id,instrumentation_event_id,video_time_seconds,frame_index,direction,line_id,track_id,frame_processing_ms
+priority-pilot-v2-single-participant-2026-08-18,daylight_out_review,daylight_review_session,development,line_crossing,counter_delta,,daylight_out_review:line:4:doorway:out:1,0.161,4,OUT,doorway,,33.815
+priority-pilot-v2-single-participant-2026-08-18,daylight_out_review,daylight_review_session,development,line_crossing,counter_delta,,daylight_out_review:line:38:doorway:out:1,1.526,38,OUT,doorway,,55.66
+priority-pilot-v2-single-participant-2026-08-18,daylight_out_review,daylight_review_session,development,line_crossing,counter_delta,,daylight_out_review:line:232:doorway:out:1,9.314,232,OUT,doorway,,33.841
+priority-pilot-v2-single-participant-2026-08-18,daylight_in_review,daylight_review_session,development,intrusion,intrusion,1ea8b238-aa9f-4cd3-a77c-0a9406fecb92,,11.763,293,IN,doorway,1,45.475
+priority-pilot-v2-single-participant-2026-08-18,daylight_in_review,daylight_review_session,development,line_crossing,counter_delta,,daylight_in_review:line:293:doorway:in:1,11.763,293,IN,doorway,,45.475
+priority-pilot-v2-single-participant-2026-08-18,daylight_in_review,daylight_review_session,development,intrusion,intrusion,9a5d7379-e2d6-4c58-90ba-46dd6a464863,,12.205,304,IN,doorway,1,33.323
+priority-pilot-v2-single-participant-2026-08-18,daylight_in_review,daylight_review_session,development,line_crossing,counter_delta,,daylight_in_review:line:304:doorway:in:1,12.205,304,IN,doorway,,33.323
+priority-pilot-v2-single-participant-2026-08-18,daylight_in_review,daylight_review_session,development,intrusion,intrusion,bc06c0e7-5554-4aaf-a5cb-6dd652d77ed6,,16.902,421,IN,doorway,1,35.051
+priority-pilot-v2-single-participant-2026-08-18,daylight_in_review,daylight_review_session,development,line_crossing,counter_delta,,daylight_in_review:line:421:doorway:in:1,16.902,421,IN,doorway,,35.051
+priority-pilot-v2-single-participant-2026-08-18,daylight_in_review,daylight_review_session,development,line_crossing,counter_delta,,daylight_in_review:line:528:doorway:out:1,21.198,528,OUT,doorway,,34.413
+priority-pilot-v2-single-participant-2026-08-18,daylight_in_review,daylight_review_session,development,intrusion,intrusion,afe1a29a-2677-40aa-9bb2-c3e7c0a7b682,,23.768,592,IN,doorway,1,32.902
+priority-pilot-v2-single-participant-2026-08-18,daylight_in_review,daylight_review_session,development,line_crossing,counter_delta,,daylight_in_review:line:592:doorway:in:1,23.768,592,IN,doorway,,32.902

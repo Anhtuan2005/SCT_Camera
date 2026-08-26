@@ -1,0 +1,6 @@
+Output slide 1 / source slide 17:
+- Reframed the three-column test-evidence layout into a publication-result proof slide.
+- Preserved the inherited chapter/title/footer chrome and the first card's status, media-frame, caption, and text elements.
+- Deleted the second and third test cards because the output has one evidence item.
+- Enlarged and repositioned the first inherited media frame, made its fill transparent, and replaced its prior test screenshot with the user-provided paper header image.
+- Rewrote the inherited text elements to state FDSE acceptance and Springer proceedings publication.

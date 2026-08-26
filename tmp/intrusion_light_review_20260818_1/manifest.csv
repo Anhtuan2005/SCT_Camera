@@ -1,0 +1,3 @@
+experiment_version,clip_id,group_id,split,video_path,camera_config_path,status
+priority-pilot-v2-single-participant-2026-08-18,daylight_out_review,daylight_review_session,development,E:/SCT_Camera/tmp/intrusion_light_review_20260818_1/83103301771838073566.mp4,E:/SCT_Camera/tmp/intrusion_light_review_20260818_1/out.yaml,READY
+priority-pilot-v2-single-participant-2026-08-18,daylight_in_review,daylight_review_session,development,E:/SCT_Camera/tmp/intrusion_light_review_20260818_1/89739805317667775775.mp4,E:/SCT_Camera/tmp/intrusion_light_review_20260818_1/in.yaml,READY

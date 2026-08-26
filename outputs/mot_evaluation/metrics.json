@@ -1,0 +1,130 @@
+{
+  "generated_at": "2026-08-22T18:57:45.506054+00:00",
+  "scope": "single-person internal pilot",
+  "model": "yolo11s.pt",
+  "device": "cuda:0",
+  "rotation": "cw90",
+  "processing_max_height": 720,
+  "person_confidence": 0.45,
+  "iou_threshold": 0.5,
+  "runs": [
+    {
+      "name": "line_crossing",
+      "video": "E:\\SCT_Camera\\experiments\\priority_19_08\\manual\\videos_pilot\\test\\test_r2_daylight_frontal_oblique\\P01_line_crossing_negative_r2_daylight_frontal_oblique.mp4",
+      "ground_truth_zip": "E:\\Line_crossing_cvat.zip",
+      "resolution": [
+        2304,
+        1296
+      ],
+      "frames": 651,
+      "fps": 24.908172635445364,
+      "prediction_rows": 292,
+      "prediction_track_ids": 2,
+      "inference_seconds": null,
+      "inference_fps": null,
+      "reused_predictions": true
+    },
+    {
+      "name": "intrusion",
+      "video": "E:\\SCT_Camera\\experiments\\priority_19_08\\manual\\videos_pilot\\test\\test_r2_low_light_side_oblique\\P01_intrusion_positive_r2_low_light_side_oblique.mp4",
+      "ground_truth_zip": "E:\\Intrusion_cvat.zip",
+      "resolution": [
+        1280,
+        720
+      ],
+      "frames": 733,
+      "fps": 24.907404261102993,
+      "prediction_rows": 430,
+      "prediction_track_ids": 1,
+      "inference_seconds": null,
+      "inference_fps": null,
+      "reused_predictions": true
+    },
+    {
+      "name": "theft",
+      "video": "E:\\SCT_Camera\\experiments\\priority_19_08\\manual\\videos_pilot\\test\\test_r2_daylight_side_oblique\\P01_theft_negative_r2_daylight_side_oblique.mp4",
+      "ground_truth_zip": "E:\\thef_cvat.zip",
+      "resolution": [
+        2304,
+        1296
+      ],
+      "frames": 974,
+      "fps": 24.907937806873978,
+      "prediction_rows": 756,
+      "prediction_track_ids": 2,
+      "inference_seconds": null,
+      "inference_fps": null,
+      "reused_predictions": true
+    }
+  ],
+  "metrics_percent": [
+    {
+      "sequence": "line_crossing",
+      "HOTA": 45.268,
+      "DetA": 39.302,
+      "AssA": 52.143,
+      "MOTA": 8.75,
+      "MOTP": 74.098,
+      "IDF1": 67.699,
+      "IDP": 52.397,
+      "IDR": 95.625,
+      "TP": 153,
+      "FP": 139,
+      "FN": 7,
+      "IDSW": 0,
+      "GT_Dets": 160,
+      "Pred_Dets": 292
+    },
+    {
+      "sequence": "intrusion",
+      "HOTA": 43.02,
+      "DetA": 43.02,
+      "AssA": 43.02,
+      "MOTA": 53.03,
+      "MOTP": 78.289,
+      "IDF1": 71.56,
+      "IDP": 90.698,
+      "IDR": 59.091,
+      "TP": 390,
+      "FP": 40,
+      "FN": 270,
+      "IDSW": 0,
+      "GT_Dets": 660,
+      "Pred_Dets": 430
+    },
+    {
+      "sequence": "theft",
+      "HOTA": 70.568,
+      "DetA": 68.813,
+      "AssA": 72.368,
+      "MOTA": 84.507,
+      "MOTP": 78.357,
+      "IDF1": 92.497,
+      "IDP": 89.683,
+      "IDR": 95.493,
+      "TP": 678,
+      "FP": 78,
+      "FN": 32,
+      "IDSW": 0,
+      "GT_Dets": 710,
+      "Pred_Dets": 756
+    },
+    {
+      "sequence": "COMBINED",
+      "HOTA": 57.142,
+      "DetA": 53.661,
+      "AssA": 60.852,
+      "MOTA": 63.007,
+      "MOTP": 77.802,
+      "IDF1": 81.184,
+      "IDP": 82.612,
+      "IDR": 79.804,
+      "TP": 1221,
+      "FP": 257,
+      "FN": 309,
+      "IDSW": 0,
+      "GT_Dets": 1530,
+      "Pred_Dets": 1478
+    }
+  ]
+}

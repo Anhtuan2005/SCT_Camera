@@ -46,6 +46,7 @@ class FallDetectorTests(unittest.TestCase):
                     "min_vertical_drop_ratio": 0.2,
                     "lying_alert_seconds": 10,
                     "pose_grace_seconds": 1,
+                    "occlusion_grace_seconds": 60,
                     "escalation_seconds": 45,
                     "urgent_reminder_seconds": 60,
                     "recovery_confirm_seconds": 3,
@@ -229,6 +230,29 @@ class FallDetectorTests(unittest.TestCase):
         self.assertEqual("possible_fall", alerts[0]["type"])
         self.assertEqual(0.3, alerts[0]["transition_seconds"])
 
+    def test_borderline_transition_waits_for_visible_drop(self) -> None:
+        person = _person()
+        borderline = replace(
+            person,
+            bbox_xyxy=(10.0, 59.0, 110.0, 119.0),
+            center_history=[*person.center_history, (60.0, 89.0)],
+            pose_label="changing_to_lying",
+        )
+        lying = _lying(person)
+
+        with patch("analytics.fall_detection.time.monotonic", return_value=0.0):
+            self.detector.analyze("cam", "Camera", [person], self.timestamp)
+        with patch("analytics.fall_detection.time.monotonic", return_value=1.0):
+            self.detector.analyze("cam", "Camera", [person], self.timestamp)
+        with patch("analytics.fall_detection.time.monotonic", return_value=1.2):
+            self.detector.analyze("cam", "Camera", [borderline], self.timestamp)
+        with patch("analytics.fall_detection.time.monotonic", return_value=1.4):
+            self.detector.analyze("cam", "Camera", [lying], self.timestamp)
+        with patch("analytics.fall_detection.time.monotonic", return_value=11.5):
+            alerts = self.detector.analyze("cam", "Camera", [lying], self.timestamp)
+
+        self.assertEqual("possible_fall", alerts[0]["type"])
+
     def test_walking_label_during_collapse_preserves_upright_geometry(self) -> None:
         person = _person()
         collapsed_walking = replace(
@@ -285,7 +309,7 @@ class FallDetectorTests(unittest.TestCase):
 
         self.assertEqual("possible_fall", alerts[0]["type"])
 
-    def test_long_unknown_pose_gap_cancels_candidate(self) -> None:
+    def test_long_unknown_pose_gap_keeps_confirmed_fall_candidate(self) -> None:
         lying = self._arm_and_fall()
         unknown = replace(lying, pose_label="unknown")
 
@@ -296,7 +320,76 @@ class FallDetectorTests(unittest.TestCase):
         with patch("analytics.fall_detection.time.monotonic", return_value=12.0):
             alerts = self.detector.analyze("cam", "Camera", [lying], self.timestamp)
 
+        self.assertEqual("possible_fall", alerts[0]["type"])
+
+    def test_transient_getting_up_does_not_cancel_confirmed_fall(self) -> None:
+        lying = self._arm_and_fall()
+        getting_up = replace(lying, pose_label="getting_up")
+        self._keep_lying_until(lying, 2.0, 9.1)
+
+        with patch("analytics.fall_detection.time.monotonic", return_value=9.1):
+            self.detector.analyze("cam", "Camera", [lying], self.timestamp)
+        with patch("analytics.fall_detection.time.monotonic", return_value=10.2):
+            self.detector.analyze("cam", "Camera", [getting_up], self.timestamp)
+        with patch("analytics.fall_detection.time.monotonic", return_value=11.3):
+            alerts = self.detector.analyze("cam", "Camera", [], self.timestamp)
+
+        self.assertEqual("possible_fall", alerts[0]["type"])
+
+    def test_reset_camera_clears_fall_candidate(self) -> None:
+        self._arm_and_fall()
+
+        self.detector.reset_camera("cam")
+
+        with patch("analytics.fall_detection.time.monotonic", return_value=11.3):
+            alerts = self.detector.analyze("cam", "Camera", [], self.timestamp)
         self.assertEqual([], alerts)
+
+    def test_occluded_after_confirmed_lying_still_alerts(self) -> None:
+        lying = self._arm_and_fall()
+
+        with patch("analytics.fall_detection.time.monotonic", return_value=11.3):
+            alerts = self.detector.analyze("cam", "Camera", [], self.timestamp)
+
+        self.assertEqual(1, len(alerts))
+        self.assertEqual("possible_fall", alerts[0]["type"])
+        self.assertTrue(alerts[0]["occluded"])
+        self.assertEqual(list(lying.bbox_xyxy), alerts[0]["last_known_bbox"])
+        self.assertIn("che khuất", alerts[0]["details"])
+        self.assertEqual(60, alerts[0]["visual_hold_seconds"])
+
+    def test_disappearance_without_observed_lying_does_not_alert(self) -> None:
+        person = _person()
+        with patch("analytics.fall_detection.time.monotonic", return_value=0.0):
+            self.detector.analyze("cam", "Camera", [person], self.timestamp)
+        with patch("analytics.fall_detection.time.monotonic", return_value=12.0):
+            alerts = self.detector.analyze("cam", "Camera", [], self.timestamp)
+
+        self.assertEqual([], alerts)
+
+    def test_occluded_candidate_expires_without_alert_after_grace(self) -> None:
+        self._arm_and_fall()
+
+        with patch("analytics.fall_detection.time.monotonic", return_value=62.0):
+            alerts = self.detector.analyze("cam", "Camera", [], self.timestamp)
+        with patch("analytics.fall_detection.time.monotonic", return_value=65.0):
+            later = self.detector.analyze("cam", "Camera", [], self.timestamp)
+
+        self.assertEqual([], alerts)
+        self.assertEqual([], later)
+
+    def test_occluded_fall_escalates_to_emergency(self) -> None:
+        self._arm_and_fall()
+        with patch("analytics.fall_detection.time.monotonic", return_value=11.3):
+            initial = self.detector.analyze("cam", "Camera", [], self.timestamp)
+        with patch("analytics.fall_detection.time.monotonic", return_value=46.3):
+            urgent = self.detector.analyze("cam", "Camera", [], self.timestamp)
+
+        self.assertEqual("possible_fall", initial[0]["type"])
+        self.assertEqual("possible_unresponsive", urgent[0]["type"])
+        self.assertEqual("emergency", urgent[0]["severity"])
+        self.assertTrue(urgent[0]["occluded"])
+        self.assertIn("che khuất", urgent[0]["details"])
 
     def test_escalates_and_repeats_urgent_alert_while_person_remains_down(self) -> None:
         lying = self._arm_and_fall()

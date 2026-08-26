@@ -1,0 +1,23 @@
+{
+  "video": "E:\\SCT_Camera\\outputs\\defense_demo\\SCT_Camera_Defense_Demo.mp4",
+  "codec_fourcc": "h264",
+  "width": 1280,
+  "height": 720,
+  "fps": 25.0,
+  "frames": 1178,
+  "duration_seconds": 47.12,
+  "decoded_sample_frames": [
+    38,
+    250,
+    521,
+    1128
+  ],
+  "encoder": "H.264 (Media Foundation)",
+  "scenario": "suspicious theft behavior near a watched motorcycle",
+  "input_video": "E:\\SCT_Camera\\experiments\\priority_19_08\\manual\\videos_pilot\\development\\development_r1_daylight_side_oblique\\P01_theft_positive_r1_daylight_side_oblique.mp4",
+  "camera_config": "E:\\SCT_Camera\\experiments\\priority_19_08\\manual\\configs_pilot\\P01_theft_positive_r1_daylight_side_oblique.yaml",
+  "input_frames_processed": 978,
+  "alert_video_time_seconds": 16.822,
+  "offline_replay": true,
+  "network_required": false
+}

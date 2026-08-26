@@ -397,8 +397,8 @@ Pipeline thêm:
 1. Arm sau khi person đứng/đi ổn định ít nhất `min_upright_seconds`.
 2. Tạo candidate khi chuyển sang `lying` trong `max_transition_seconds` và tâm bbox hạ ít nhất `min_vertical_drop_ratio` theo chiều cao lúc đứng.
    Nhãn `sitting` ngắn trong cửa sổ này được giữ như tư thế trung gian; ngồi lâu hơn thì candidate bị hủy để tránh báo giả khi ngồi hoặc nằm bình thường.
-3. Gửi `possible_fall` nếu vẫn nằm liên tục đủ `lying_alert_seconds`.
-4. Gửi `possible_unresponsive` khi đã nằm đủ `escalation_seconds`, chuyển động thấp; nhắc lại theo `urgent_reminder_seconds`.
+3. Gửi `possible_fall` nếu vẫn nằm liên tục đủ `lying_alert_seconds`. Sau khi đã thấy tư thế nằm, candidate và chỉ báo trực quan được giữ tối đa `occlusion_grace_seconds` khi người bị che hoặc pose tạm mất; cảnh báo ghi rõ đây là vị trí nhìn thấy cuối cùng.
+4. Gửi `possible_unresponsive` khi đã nằm đủ `escalation_seconds`, chuyển động thấp. Nếu người bị che sau khi đã xác nhận chuyển tiếp sang nằm, hệ thống vẫn nâng mức khẩn cấp khi chưa quan sát thấy hồi phục; nội dung cảnh báo nêu rõ giới hạn tầm nhìn thay vì kết luận người đó bất động. Nhắc lại theo `urgent_reminder_seconds`.
 5. Gửi `fall_recovery` khi person ngồi/đứng lại ổn định đủ `recovery_confirm_seconds`.
 
 Các alert này có `safety_critical: true`, không bị behavior-learning gate suppress. Telegram/Discord ưu tiên `title`, `severity` và `recommended_action` để người nhà thấy ngay hành động cần làm. `emergency_number` là cấu hình theo nơi triển khai; hệ thống chỉ báo động sớm, không chẩn đoán bất tỉnh hay đột quỵ.
@@ -413,6 +413,7 @@ fall_detection:
   min_vertical_drop_ratio: 0.2
   lying_alert_seconds: 10
   pose_grace_seconds: 1.0
+  occlusion_grace_seconds: 60.0
   escalation_seconds: 45
   urgent_reminder_seconds: 60
   recovery_confirm_seconds: 3

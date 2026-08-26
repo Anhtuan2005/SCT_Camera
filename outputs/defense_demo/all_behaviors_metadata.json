@@ -1,0 +1,17 @@
+{
+  "video": "E:\\SCT_Camera\\outputs\\defense_demo\\SCT_Camera_All_Behaviors_Demo.mp4",
+  "codec": "H.264",
+  "resolution": "1280x720",
+  "fps": 25.0,
+  "frames": 1137,
+  "duration_seconds": 45.48,
+  "event_video_times_seconds": {
+    "line_crossing": 6.986,
+    "intrusion": 3.252,
+    "theft": 16.822
+  },
+  "windows_media_foundation_decode": true,
+  "offline_replay": true,
+  "network_required": false,
+  "encoder": "H.264 (Media Foundation)"
+}

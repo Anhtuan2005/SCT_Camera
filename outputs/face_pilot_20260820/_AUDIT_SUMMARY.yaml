@@ -1,0 +1,38 @@
+zip: E:\SCT_Camera\config\known_people\Face.zip
+zip_sha256: 68ba815da65fbda8bb10391535f4d46c72e927b65a990769b294b21a6a13ffe9
+image_count: 24
+identity_counts:
+  Nguyen: 11
+  Tuan: 13
+unreadable: []
+no_face_detected: []
+orientation_changes:
+- filename: nguyen/nguyen_07_new_front_stand.png
+  orientation: cw90
+- filename: nguyen/nguyen_08_new_front_left.png
+  orientation: cw90
+- filename: nguyen/nguyen_09_new_front_clear.png
+  orientation: cw90
+- filename: nguyen/nguyen_11_new_side_near.png
+  orientation: cw90
+- filename: nguyen/nguyen_12_new_front_near.png
+  orientation: cw90
+- filename: tuan/tuan_11_new_front_body.png
+  orientation: cw90
+- filename: tuan/tuan_12_new_front_near.png
+  orientation: cw90
+- filename: tuan/tuan_13_new_front_clear.png
+  orientation: cw90
+visual_audit_overrides:
+  nguyen/nguyen_07_new_front_stand.png: cw90
+  nguyen/nguyen_08_new_front_left.png: cw90
+  nguyen/nguyen_09_new_front_clear.png: cw90
+  nguyen/nguyen_11_new_side_near.png: cw90
+  nguyen/nguyen_12_new_front_near.png: cw90
+  tuan/tuan_06_me_06_color_left.png: none
+  tuan/tuan_11_new_front_body.png: cw90
+  tuan/tuan_12_new_front_near.png: cw90
+  tuan/tuan_13_new_front_clear.png: cw90
+production_model: buffalo_sc
+detection_size: 320
+audit_provider: CPUExecutionProvider

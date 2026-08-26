@@ -57,6 +57,7 @@ class _AlertVisualState:
     emergency_labels_by_track: dict[int, str]
     emergency_flash_on: bool
     emergency_label: str | None
+    last_known_boxes: list[tuple[tuple[int, int, int, int], str]]
 
 
 def draw_annotations(
@@ -104,6 +105,9 @@ def draw_annotations(
             emergency_label=alert_state.emergency_labels_by_track.get(obj.track_id),
             emergency_flash_on=alert_state.emergency_flash_on,
         )
+
+    for bbox, label in alert_state.last_known_boxes:
+        _draw_last_known_box(annotated, bbox, label)
 
     _draw_frame_hud(annotated, camera_config, tracked_objects)
     if camera_config.get("show_theft_overlay", False) and theft_states:
@@ -241,6 +245,30 @@ def _draw_pose(
         point = _visible_keypoint(keypoints, index)
         if point is not None:
             cv2.circle(frame, point, 2, color, -1, lineType=cv2.LINE_AA)
+
+
+def _draw_last_known_box(
+    frame: np.ndarray,
+    bbox_xyxy: tuple[int, int, int, int],
+    label: str,
+) -> None:
+    """Draw a dashed last-seen location without pretending detection is current."""
+    h, w = frame.shape[:2]
+    x1, y1, x2, y2 = bbox_xyxy
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(w - 1, x2), min(h - 1, y2)
+    if x2 <= x1 or y2 <= y1:
+        return
+    color = EMERGENCY_COLOR
+    dash = max(6, int(round(10 * _visual_scale(frame))))
+    thickness = _line_thickness(frame)
+    for start in range(x1, x2, dash * 2):
+        cv2.line(frame, (start, y1), (min(start + dash, x2), y1), color, thickness)
+        cv2.line(frame, (start, y2), (min(start + dash, x2), y2), color, thickness)
+    for start in range(y1, y2, dash * 2):
+        cv2.line(frame, (x1, start), (x1, min(start + dash, y2)), color, thickness)
+        cv2.line(frame, (x2, start), (x2, min(start + dash, y2)), color, thickness)
+    _draw_label(frame, label, (x1, y1 - 8), color)
 
 
 def _visible_keypoint(
@@ -501,6 +529,7 @@ def _alert_visual_state(
     flash_on = False
     emergency_flash_on = False
     emergency_type: str | None = None
+    last_known_boxes: list[tuple[tuple[int, int, int, int], str]] = []
     for alert in active_alerts:
         expires_at = _float_or_none(alert.get("expires_at"))
         if expires_at is not None and expires_at <= now:
@@ -513,6 +542,14 @@ def _alert_visual_state(
         elapsed = max(0.0, now - started_at)
         track_id = _int_or_none(alert.get("track_id"))
         if alert_type in _EMERGENCY_ALERT_LABELS:
+            bbox = _bbox_or_none(alert.get("last_known_bbox"))
+            if bool(alert.get("occluded")) and bbox is not None:
+                last_known_boxes.append(
+                    (
+                        bbox,
+                        f"LAST SEEN | {_EMERGENCY_OBJECT_LABELS[alert_type].upper()}",
+                    )
+                )
             current_type = emergency_types_by_track.get(track_id) if track_id is not None else None
             if track_id is not None and (
                 current_type is None
@@ -558,6 +595,7 @@ def _alert_visual_state(
         emergency_labels_by_track,
         emergency_flash_on,
         emergency_label,
+        last_known_boxes,
     )
 
 
@@ -571,6 +609,16 @@ def _int_or_none(value: Any) -> int | None:
 def _float_or_none(value: Any) -> float | None:
     try:
         return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bbox_or_none(value: Any) -> tuple[int, int, int, int] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        x1, y1, x2, y2 = (int(round(float(item))) for item in value)
+        return x1, y1, x2, y2
     except (TypeError, ValueError):
         return None
 

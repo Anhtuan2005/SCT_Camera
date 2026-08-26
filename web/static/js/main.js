@@ -429,6 +429,7 @@
           },
           behavior: {
             loitering_threshold_seconds: Number(form.get("loitering_threshold_seconds") || 30),
+            loitering_state_grace_seconds: Number(form.get("loitering_state_grace_seconds") || 3),
             stranger_watch_seconds: Number(form.get("stranger_watch_seconds") || 180),
             asset_missing_seconds: Number(form.get("asset_missing_seconds") || 6),
             theft: {

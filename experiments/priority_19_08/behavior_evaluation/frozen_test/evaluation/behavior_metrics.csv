@@ -1,0 +1,6 @@
+experiment_version,behavior,status,positive_events,negative_clips,tp,fp,tn,fn,detection_rate,false_alarm_rate_negative_clip,precision,recall,f1,latency_median_seconds,latency_p95_seconds
+priority-pilot-v2-single-participant-2026-08-18,intrusion,completed,1,1,1,5,1,0,1.0,0.0,0.166667,1.0,0.285714,0.457,0.457
+priority-pilot-v2-single-participant-2026-08-18,loitering,completed,1,1,1,0,1,0,1.0,0.0,1.0,1.0,1.0,0.725,0.725
+priority-pilot-v2-single-participant-2026-08-18,suspicious_behavior,completed,1,1,1,0,1,0,1.0,0.0,1.0,1.0,1.0,0.186,0.186
+priority-pilot-v2-single-participant-2026-08-18,theft,completed,1,1,0,1,0,1,0.0,1.0,0.0,0.0,0.0,,
+priority-pilot-v2-single-participant-2026-08-18,line_crossing,completed,1,1,1,2,0,0,1.0,1.0,0.333333,1.0,0.5,4.084,4.084

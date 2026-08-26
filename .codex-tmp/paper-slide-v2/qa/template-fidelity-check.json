@@ -1,0 +1,13 @@
+{
+  "status": "pass",
+  "checkedAt": "2026-08-25T17:36:49.774Z",
+  "workspace": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2",
+  "finalPptx": "E:\\Slide_Cong_bo_khoa_hoc_FDSE_v2.pptx",
+  "starterPptx": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-starter.pptx",
+  "mapPath": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-frame-map.json",
+  "starterLayoutDir": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\template-starter-layout",
+  "finalLayoutDir": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2\\final-layout\\final",
+  "editDir": "E:\\SCT_Camera\\.codex-tmp\\paper-slide-v2",
+  "issueCount": 0,
+  "issues": []
+}

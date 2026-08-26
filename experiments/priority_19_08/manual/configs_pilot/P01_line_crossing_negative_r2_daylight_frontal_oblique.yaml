@@ -1,0 +1,29 @@
+experiment_version: priority-pilot-v2-single-participant-2026-08-18
+clip_id: P01_line_crossing_negative_r2_daylight_frontal_oblique
+participant_id: P01
+repetition: 2
+session_id: test_r2_daylight_frontal_oblique
+expected_behavior: line_crossing
+expected_label: negative
+expected_direction: NONE
+camera_id: pilot_P01_line_crossing_negative_r2_daylight_frontal_oblique
+name: Pilot P01_line_crossing_negative_r2_daylight_frontal_oblique
+source: experiments/priority_19_08/manual/videos_pilot/test/test_r2_daylight_frontal_oblique/P01_line_crossing_negative_r2_daylight_frontal_oblique.mp4
+frame_rotation: cw90
+auto_global_zone: false
+unknown_person_policy: assume_stranger
+manual_confirmation:
+  status: CONFIRMED_BY_AI_VISUAL_QA
+  basis: Accepted recordings; fixed geometry; no threshold or test-output tuning.
+  do_not_change: experiment_version, behavior thresholds, expected behavior/label
+zones: []
+lines:
+- id: doorway
+  name: Doorway
+  point1:
+  - 0.3
+  - 0.16
+  point2:
+  - 0.75
+  - 0.16
+  direction: forward

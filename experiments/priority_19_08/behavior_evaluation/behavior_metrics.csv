@@ -1,0 +1,6 @@
+behavior,status,positive_events,negative_clips,tp,fp,tn,fn,detection_rate,false_alarm_rate_negative_clip,precision,recall,f1,latency_median_seconds,latency_p95_seconds
+intrusion,NEEDS MANUAL INPUT,0,0,,,,,,,,,,,
+loitering,NEEDS MANUAL INPUT,0,0,,,,,,,,,,,
+suspicious_behavior,NEEDS MANUAL INPUT,0,0,,,,,,,,,,,
+theft,NEEDS MANUAL INPUT,0,0,,,,,,,,,,,
+line_crossing,NEEDS MANUAL INPUT,0,0,,,,,,,,,,,

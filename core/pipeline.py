@@ -1028,15 +1028,25 @@ class CameraPipeline:
     ) -> list[dict[str, Any]]:
         visual_alerts: list[dict[str, Any]] = []
         for alert in alerts:
+            try:
+                hold_seconds = max(
+                    VISUAL_ALERT_SECONDS,
+                    float(alert.get("visual_hold_seconds", VISUAL_ALERT_SECONDS)),
+                )
+            except (TypeError, ValueError):
+                hold_seconds = VISUAL_ALERT_SECONDS
             item: dict[str, Any] = {
                 "type": str(alert.get("type", "unknown")),
                 "started_at": now,
-                "expires_at": now + VISUAL_ALERT_SECONDS,
+                "expires_at": now + hold_seconds,
             }
             for key in ("track_id", "zone_id", "line_id"):
                 value = alert.get(key)
                 if value is not None:
                     item[key] = value
+            if bool(alert.get("occluded")) and alert.get("last_known_bbox") is not None:
+                item["occluded"] = True
+                item["last_known_bbox"] = list(alert["last_known_bbox"])
             if any(key in item for key in ("track_id", "zone_id", "line_id")):
                 visual_alerts.append(item)
         return visual_alerts
@@ -1047,6 +1057,24 @@ class CameraPipeline:
         now: float,
     ) -> list[dict[str, Any]]:
         self._prune_visual_alerts_locked(now)
+        recovered_track_ids = {
+            alert.get("track_id")
+            for alert in alerts
+            if alert.get("type") == "fall_recovery"
+            and alert.get("track_id") is not None
+        }
+        if recovered_track_ids:
+            self._active_visual_alerts = [
+                alert
+                for alert in self._active_visual_alerts
+                if not (
+                    alert.get("type") in {"possible_fall", "possible_unresponsive"}
+                    and alert.get("track_id") in recovered_track_ids
+                )
+            ]
+            alerts = [
+                alert for alert in alerts if alert.get("type") != "fall_recovery"
+            ]
         self._active_visual_alerts.extend(alerts)
         if len(self._active_visual_alerts) > MAX_ACTIVE_VISUAL_ALERTS:
             self._active_visual_alerts = self._active_visual_alerts[-MAX_ACTIVE_VISUAL_ALERTS:]

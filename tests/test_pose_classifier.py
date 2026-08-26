@@ -342,6 +342,19 @@ class PoseClassifierTests(unittest.TestCase):
 
         self.assertEqual("walking_slow", result[0].pose_label)
 
+    def test_reset_camera_clears_only_that_cameras_pose_state(self) -> None:
+        person = _person(
+            (40.0, 0.0, 80.0, 100.0),
+            keypoints=_keypoints(),
+        )
+        self.classifier.label_objects("cam", [person], self.frame_shape)
+        self.classifier.label_objects("other", [person], self.frame_shape)
+
+        self.classifier.reset_camera("cam")
+
+        self.assertNotIn(("cam", 1), self.classifier._states)
+        self.assertIn(("other", 1), self.classifier._states)
+
 
 if __name__ == "__main__":
     unittest.main()

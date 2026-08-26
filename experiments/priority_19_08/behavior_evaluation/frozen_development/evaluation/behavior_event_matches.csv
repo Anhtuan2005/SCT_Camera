@@ -1,0 +1,13 @@
+experiment_version,behavior,clip_id,event_id,behavior_event_id,instrumentation_event_id,expected_direction,detected_direction,status,detection_time_seconds,latency_seconds
+priority-pilot-v2-single-participant-2026-08-18,intrusion,P01_intrusion_positive_r1_daylight_frontal_oblique,gt_P01_intrusion_positive_r1_daylight_frontal_oblique_01,cd213f5a-5524-44c2-ba45-d1a225d673a2,,IN,IN,TP,12.566,3.566
+priority-pilot-v2-single-participant-2026-08-18,intrusion,P01_intrusion_positive_r1_daylight_frontal_oblique,,c2907605-776b-4713-bcb1-44a723c7153e,,,IN,FP,3.252,
+priority-pilot-v2-single-participant-2026-08-18,loitering,P01_loitering_positive_r1_daylight_side_oblique,gt_P01_loitering_positive_r1_daylight_side_oblique_01,,,,,FN,,
+priority-pilot-v2-single-participant-2026-08-18,loitering,P01_loitering_positive_r1_daylight_side_oblique,,b79dfcd9-c4ea-4269-9e0d-aaa48fc12485,,,,FP,26.899,
+priority-pilot-v2-single-participant-2026-08-18,suspicious_behavior,P01_suspicious_behavior_positive_r1_daylight_frontal_oblique,gt_P01_suspicious_behavior_positive_r1_daylight_frontal_oblique_01,27e3f9b4-df49-4196-8182-e16e39447526,,,,TP,180.185,0.185
+priority-pilot-v2-single-participant-2026-08-18,theft,P01_theft_positive_r1_daylight_side_oblique,gt_P01_theft_positive_r1_daylight_side_oblique_01,,,,,FN,,
+priority-pilot-v2-single-participant-2026-08-18,theft,P01_theft_positive_r1_daylight_side_oblique,,1ec424b3-ba6e-4f31-8943-46521846721c,,,,FP,16.822,
+priority-pilot-v2-single-participant-2026-08-18,line_crossing,P01_line_crossing_positive_r1_daylight_frontal_oblique,gt_P01_line_crossing_positive_r1_daylight_frontal_oblique_01,,P01_line_crossing_positive_r1_daylight_frontal_oblique:line:287:doorway:out:1,OUT,OUT,TP,11.522,3.522
+priority-pilot-v2-single-participant-2026-08-18,line_crossing,P01_line_crossing_negative_r1_low_light_side_oblique,,,P01_line_crossing_negative_r1_low_light_side_oblique:line:289:doorway:out:1,,OUT,FP,11.603,
+priority-pilot-v2-single-participant-2026-08-18,line_crossing,P01_line_crossing_negative_r1_low_light_side_oblique,,,P01_line_crossing_negative_r1_low_light_side_oblique:line:389:doorway:out:1,,OUT,FP,15.618,
+priority-pilot-v2-single-participant-2026-08-18,line_crossing,P01_line_crossing_negative_r1_low_light_side_oblique,,,P01_line_crossing_negative_r1_low_light_side_oblique:line:399:doorway:out:1,,OUT,FP,16.019,
+priority-pilot-v2-single-participant-2026-08-18,line_crossing,P01_line_crossing_positive_r1_daylight_frontal_oblique,,,P01_line_crossing_positive_r1_daylight_frontal_oblique:line:174:doorway:out:1,,OUT,FP,6.986,

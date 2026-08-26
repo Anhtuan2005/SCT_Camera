@@ -1,0 +1,15 @@
+experiment_version: priority-pilot-v2-single-participant-2026-08-18
+clip_id: daylight_in_review
+camera_id: daylight_in_review
+name: Daylight IN review
+source: E:/SCT_Camera/tmp/intrusion_light_review_20260818_1/89739805317667775775.mp4
+frame_rotation: cw90
+auto_global_zone: false
+unknown_person_policy: assume_stranger
+zones: []
+lines:
+- id: doorway
+  name: Doorway
+  point1: [0.30, 0.16]
+  point2: [0.75, 0.16]
+  direction: forward

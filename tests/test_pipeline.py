@@ -436,6 +436,43 @@ class PipelineCadenceTests(unittest.TestCase):
 
         self.assertEqual([], expired)
 
+    def test_visual_alert_keeps_occluded_fall_location(self) -> None:
+        visual_alerts = CameraPipeline._visual_alerts_for_alerts(
+            [
+                {
+                    "type": "possible_fall",
+                    "track_id": 7,
+                    "occluded": True,
+                    "last_known_bbox": [10.0, 20.0, 30.0, 40.0],
+                    "visual_hold_seconds": 60,
+                }
+            ],
+            100.0,
+        )
+
+        self.assertTrue(visual_alerts[0]["occluded"])
+        self.assertEqual([10.0, 20.0, 30.0, 40.0], visual_alerts[0]["last_known_bbox"])
+        self.assertEqual(160.0, visual_alerts[0]["expires_at"])
+
+    def test_recovery_clears_persistent_fall_visual(self) -> None:
+        pipeline = CameraPipeline.__new__(CameraPipeline)
+        pipeline._active_visual_alerts = [
+            {
+                "type": "possible_fall",
+                "track_id": 7,
+                "started_at": 100.0,
+                "expires_at": 160.0,
+            }
+        ]
+        recovery = CameraPipeline._visual_alerts_for_alerts(
+            [{"type": "fall_recovery", "track_id": 7}],
+            110.0,
+        )
+
+        active = pipeline._merge_visual_alerts_locked(recovery, 110.0)
+
+        self.assertEqual([], active)
+
     def test_apply_frame_rotation_uses_camera_config(self) -> None:
         frame = np.asarray([[1, 2, 3], [4, 5, 6]], dtype=np.uint8)
 
