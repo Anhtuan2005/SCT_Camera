@@ -1,7 +1,0 @@
-Source deck: E:\Slide_Cong_bo_khoa_hoc_FDSE.pptx
-Canvas: 1920 x 1080 px, one slide.
-Visual system: inherited HUFLIT white/blue/orange template with chapter eyebrow, blue title, thin divider, footer rail, slide number, and website.
-Typography: inherited Arial / Arial Bold hierarchy.
-Selected source slide: 1, the only slide in the source deck.
-Edit contract: preserve all imagery, chrome, notes, and publication details; tighten and standardize only the four left-column text blocks.
-

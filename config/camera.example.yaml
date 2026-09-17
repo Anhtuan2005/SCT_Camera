@@ -1,0 +1,12 @@
+# Safe webcam example copied to config/cameras/cam_01.yaml on the first run.
+camera_id: cam_01
+name: Camera 1
+source: 0
+enabled: true
+frame_rotation: none
+unknown_person_policy: face_match
+auto_global_zone: true
+notification_channels:
+  - telegram
+zones: []
+lines: []

@@ -1,6 +1,0 @@
-behavior,matched_tp_events,unmatched_positive_clip_fp_events,negative_clip_fp_events,fn_events,negative_clips,negative_clips_with_false_alert,negative_clip_far,precision,recall,f1,latency_median_seconds
-intrusion,1,5,0,0,1,0,0.0,0.166667,1.0,0.285714,0.457
-loitering,1,0,0,0,1,0,0.0,1.0,1.0,1.0,0.725
-suspicious_behavior,1,0,0,0,1,0,0.0,1.0,1.0,1.0,0.186
-theft,0,0,1,1,1,1,1.0,0.0,0.0,0.0,
-line_crossing,1,1,1,0,1,1,1.0,0.333333,1.0,0.5,4.084

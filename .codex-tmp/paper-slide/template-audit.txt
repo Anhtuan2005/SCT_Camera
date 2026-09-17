@@ -1,9 +1,0 @@
-Source deck: E:\BaoCao_ThuyetTrinh_BAN_CUOI_v3.pptx
-Canvas: 1920 x 1080 px, 16:9.
-Visual system: white background, dark HUFLIT blue (#17459E), orange accent (#EE6821), thin blue divider, blue/orange footer rail.
-Typography: Arial / Arial Bold for audience-facing copy; large blue slide title; small uppercase orange chapter eyebrow.
-Recurring chrome: chapter eyebrow, slide title, thin divider, footer section label, slide number, HUFLIT website.
-Source inventory reviewed: 24 slides covering title, agenda, problem, scope, algorithms, pipeline, behavior laws, development environment, alert delivery, test setup, scaling, latency, MOT metrics, pytest, test evidence, stability, achievements/limitations, roadmap, conclusion, demo, work allocation, and closing.
-Selected source slide: 17, because it provides inherited media, status, caption, title, and body slots suitable for a publication-result proof slide.
-Insertion contract: output is one standalone slide numbered 20, intended to be inserted immediately after the current slide 19 (Kết quả đạt được & hạn chế còn tồn tại).
-

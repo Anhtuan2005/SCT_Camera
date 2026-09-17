@@ -6,7 +6,7 @@ Camera(s) -> YOLOv11 Detection -> ByteTrack Tracking -> Behavior Analysis -> Tel
 
 ## Tính năng chính
 
-- YOLOv11 qua `ultralytics`, model mặc định `yolo11s.pt`.
+- YOLOv11 qua `ultralytics`; cấu hình public mặc định dùng `yolo11n.pt` để dễ chạy trên CPU.
 - ByteTrack của Ultralytics với tracker state riêng cho từng camera.
 - Camera motion compensation (CMC) bằng sparse optical flow để ổn định tracking khi camera rung/pan nhẹ.
 - Multi-camera pipeline, mỗi camera chạy trên một thread riêng.
@@ -40,6 +40,11 @@ Cài các thư viện còn lại:
 pip install -r requirements.txt
 ```
 
+Lần chạy đầu tiên, ứng dụng tự tạo cấu hình local an toàn từ
+`config/settings.example.yaml` và `config/camera.example.yaml`. Các file cấu
+hình thật được Git bỏ qua để không đưa token, mật khẩu hoặc địa chỉ camera lên
+repository.
+
 Kiểm tra CUDA:
 
 ```powershell
@@ -54,10 +59,13 @@ Global settings nằm ở:
 config/settings.yaml
 ```
 
+File mẫu public nằm tại `config/settings.example.yaml`. Nếu cần khôi phục cấu
+hình mặc định, xóa file local `config/settings.yaml` rồi chạy lại ứng dụng.
+
 Các mục quan trọng:
 
 - `telegram.chat_id`: điền group chat ID, thường có dạng số âm như `-1001234567890`.
-- `detection.model`: mặc định dùng `yolo11s.pt` để nhận diện tốt hơn; `yolo11n.pt` nhanh hơn nhưng dễ bỏ sót vật thể ở camera góc rộng.
+- `detection.model`: cấu hình mẫu dùng `yolo11n.pt`; đổi sang `yolo11s.pt` để tăng độ chính xác nếu máy đủ mạnh.
 - `detection.device`: dùng `cuda:0` nếu CUDA hoạt động, hoặc `cpu`.
 - `detection.person_max_aspect_ratio`: bỏ bbox `person` quá mảnh/dài, giúp giảm rèm/cột bị nhận nhầm.
 - `pipeline.frame_skip`: tăng lên để giảm tải GPU.
@@ -70,6 +78,9 @@ Camera config nằm trong:
 ```text
 config/cameras/*.yaml
 ```
+
+File mẫu public nằm tại `config/camera.example.yaml`; lần chạy đầu tiên file này
+được sao chép thành `config/cameras/cam_01.yaml`.
 
 `source` có thể là:
 
@@ -127,7 +138,7 @@ web:
   auth:
     enabled: true
     username: admin
-    password: sct-camera
+    password: change-me
 ```
 
 Có thể override khi chạy demo mà không sửa file:
@@ -165,7 +176,7 @@ python main.py
 
 Vào `http://localhost:8000/camera/cam_01`. Mặc định `cam_01` dùng source `0`. Nếu máy không có webcam, đổi `config/cameras/cam_01.yaml` sang file video hoặc RTSP URL.
 
-YOLO model sẽ tự tải lần đầu từ Ultralytics hub. Nếu môi trường không có Internet, đặt sẵn file `yolo11s.pt` trong thư mục project hoặc đổi `detection.model` sang đường dẫn model local.
+YOLO model sẽ tự tải lần đầu từ Ultralytics hub. Nếu môi trường không có Internet, đặt sẵn model được khai báo trong `detection.model` vào thư mục project hoặc đổi mục này sang đường dẫn model local.
 
 ## Ghi chú vận hành
 

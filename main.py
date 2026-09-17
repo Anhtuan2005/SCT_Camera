@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 from pathlib import Path
 
@@ -23,6 +24,23 @@ from utils.logger import get_logger, setup_logging
 from web.app import RuntimeState, create_app, load_camera_configs, load_settings
 
 logger = get_logger(__name__)
+
+
+def _bootstrap_local_config(project_root: Path) -> None:
+    """Create ignored local config files from safe, tracked examples."""
+    config_dir = project_root / "config"
+    settings_path = config_dir / "settings.yaml"
+    settings_example = config_dir / "settings.example.yaml"
+    cameras_dir = config_dir / "cameras"
+    camera_example = config_dir / "camera.example.yaml"
+
+    config_dir.mkdir(parents=True, exist_ok=True)
+    if not settings_path.exists():
+        shutil.copyfile(settings_example, settings_path)
+
+    cameras_dir.mkdir(parents=True, exist_ok=True)
+    if not any(cameras_dir.glob("*.yaml")):
+        shutil.copyfile(camera_example, cameras_dir / "cam_01.yaml")
 
 
 def _local_ipv4_addresses() -> list[str]:
@@ -53,6 +71,7 @@ def main() -> None:
     torch.set_num_threads(min(4, os.cpu_count() or 1))
 
     project_root = Path(__file__).resolve().parent
+    _bootstrap_local_config(project_root)
     settings_path = project_root / "config" / "settings.yaml"
     cameras_dir = project_root / "config" / "cameras"
 

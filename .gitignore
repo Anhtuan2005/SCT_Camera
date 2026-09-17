@@ -13,6 +13,7 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+node_modules/
 
 # Local environment and secrets
 .env
@@ -54,3 +55,51 @@ Thumbs.db
 
 # Temporary work artifacts
 .tmp*/
+
+# Private development and generated project material
+/.codex*/
+/_codex*/
+/.docx_qa/
+/assets/
+/docs/
+/experiments/
+/output/
+/outputs/
+/scripts/
+/tests/
+/tmp/
+/requirements-dev.txt
+
+# Internal reports and document-processing helpers
+/EXPERIMENTS.md
+/HO_SO_BAO_VE_KHOA_LUAN.md
+/NOI_DUNG_BO_SUNG_BAO_CAO.docx
+/PRIORITY_PROGRESS_19_08.md
+/PRODUCT.md
+/baseline_report.md
+/*paper*.py
+/*docx*.py
+/*docx*.ps1
+/verify_*.py
+/inspect_*.py
+/inspect_*.ps1
+/rasterize_*.py
+/remove_direct_*.py
+/word_*.py
+/word_*.ps1
+/format_strict_*.py
+
+# Root-level generated documents and review images
+/*.docx
+/*.pdf
+/*.pptx
+/*.xlsx
+/*.jpg
+/*.jpeg
+/*.png
+
+# Local container experiments
+/Dockerfile*
+/docker-compose*.yml
+/docker-compose*.yaml
+/.dockerignore

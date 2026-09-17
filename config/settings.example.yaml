@@ -1,0 +1,102 @@
+# Safe defaults copied to config/settings.yaml on the first run.
+# Local credentials and machine-specific settings stay outside Git.
+
+telegram:
+  enabled: false
+  bot_token: ""
+  chat_id: ""
+  cooldown_seconds: 10
+  max_retries: 3
+
+discord:
+  enabled: false
+  webhook_url: ""
+  username: SCT Camera
+  max_retries: 3
+
+detection:
+  model: yolo11n.pt
+  confidence: 0.4
+  classes: [0, 2, 3, 5, 7, 15, 16, 63]
+  device: cpu
+  half: false
+  imgsz: 640
+  iou: 0.5
+  person_max_aspect_ratio: 4.5
+  person_min_bbox_area: 3000
+
+pose:
+  enabled: false
+  model: yolo11n-pose.pt
+  allow_download: true
+  confidence: 0.35
+  imgsz: 640
+  match_iou: 0.25
+
+identity:
+  enabled: false
+  unknown_person_label: Stranger
+  model: buffalo_sc
+  model_root: models/insightface
+  device: cpu
+  similarity_threshold: 0.45
+  known_persons: []
+
+tracking:
+  tracker: bytetrack.yaml
+  track_buffer: 90
+  track_history_length: 50
+  track_grace_frames: 60
+  camera_motion_compensation:
+    enabled: false
+    method: sparseOptFlow
+    downscale: 2
+
+behavior:
+  loitering_threshold_seconds: 30
+  intrusion_reset_frames: 30
+  stranger_watch_seconds: 180
+  asset_missing_seconds: 6
+
+fall_detection:
+  enabled: false
+
+behavior_learning:
+  enabled: false
+  log_candidates: false
+  event_log_path: data/behavior_events.jsonl
+  model_path: models/behavior_classifier.npz
+
+siren:
+  enabled: false
+
+pipeline:
+  frame_skip: 2
+  reconnect_delay: 5
+  max_reconnect_attempts: 10
+  processing_max_height: 720
+  stream_max_height: 720
+  camera_backend: any
+  ai_max_fps: 10
+  analysis_stale_after_ms: 500
+  analysis_timeout_min_seconds: 5.0
+
+database:
+  path: data/sct_camera.db
+
+web:
+  host: 127.0.0.1
+  port: 8000
+  auth:
+    enabled: true
+    username: admin
+    password: change-me
+    password_env: SCT_CAMERA_PASSWORD
+    username_env: SCT_CAMERA_USERNAME
+    session_secret_env: SCT_CAMERA_SESSION_SECRET
+    session_max_age_seconds: 28800
+    secure_cookie: false
+
+logging:
+  level: INFO
+  file: logs/sct_camera.log

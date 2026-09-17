@@ -1,8 +1,0 @@
-{
-  "status": "blocked",
-  "reason": "Insufficient labeled events; metrics would not be scientifically valid",
-  "labeled_samples": 0,
-  "positive_samples": 0,
-  "negative_samples": 0,
-  "required_minimum": "at least 5 positive and 5 negative events for a three-way split"
-}
