@@ -69,10 +69,7 @@ Thumbs.db
 /experiments/
 /output/
 /outputs/
-/scripts/
-/tests/
 /tmp/
-/requirements-dev.txt
 
 # Internal reports and document-processing helpers
 /EXPERIMENTS.md
