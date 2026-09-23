@@ -45,6 +45,10 @@ test_videos/
 *.mov
 *.mkv
 
+# Curated portfolio media. Keep all other local videos ignored.
+!media/
+!media/sct-camera-demo.mp4
+
 # OS and editor files
 .DS_Store
 Thumbs.db

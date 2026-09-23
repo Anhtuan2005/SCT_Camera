@@ -1,6 +1,27 @@
 # SCT Camera Realtime Monitoring
 
-Hệ thống giám sát video thời gian thực:
+Hệ thống phân tích video đa camera theo thời gian thực, kết hợp YOLOv11,
+ByteTrack, OpenCV và FastAPI để phát hiện, theo dõi và cảnh báo sự kiện từ
+webcam, video hoặc RTSP.
+
+![SCT Camera realtime dashboard demo](media/sct-camera-demo.gif)
+
+[Xem demo MP4 chất lượng cao](media/sct-camera-demo.mp4)
+
+Demo 56 giây minh họa Live Wall đa camera, pose/activity classification,
+fall detection và escalation, intrusion/ROI rules, asset-watch/theft scoring,
+cùng luồng gửi cảnh báo bất đồng bộ.
+
+## Kết quả nổi bật
+
+- Xử lý một luồng 720p ở **26.5 FPS** trên NVIDIA RTX 3050 Laptop GPU.
+- Đạt **27.6 FPS tổng** khi benchmark đồng thời bốn luồng video.
+- **208 automated tests** đang pass với khoảng **70% code coverage**.
+- Dashboard realtime có pose/tracking overlay, ROI/line editor, alert history và cấu hình runtime.
+- Behavior modules gồm fall/recovery, intrusion, loitering, stranger watch, asset missing/removed và experimental theft scoring.
+- Behavior analytics là prototype thực nghiệm; kết quả pilot và giới hạn được đánh giá riêng, không coi là hệ thống an ninh production-ready.
+
+Luồng xử lý chính:
 
 Camera(s) -> YOLOv11 Detection -> ByteTrack Tracking -> Behavior Analysis -> Telegram Alert -> FastAPI Dashboard
 
