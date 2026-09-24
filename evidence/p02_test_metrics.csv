@@ -1,0 +1,6 @@
+behavior,positive_events,negative_clips,tp,fp,tn,fn,false_alarm_rate_negative_clip,precision,recall,f1,latency_median_seconds
+intrusion,1,1,0,5,0,1,1.0,0.0,0.0,0.0,
+loitering,1,1,1,2,0,0,1.0,0.333333,1.0,0.5,1.265
+suspicious_behavior,1,1,1,1,0,0,1.0,0.5,1.0,0.666667,0.184
+theft,1,1,0,1,0,1,1.0,0.0,0.0,0.0,
+line_crossing,1,1,0,5,0,1,1.0,0.0,0.0,0.0,

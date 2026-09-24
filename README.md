@@ -15,8 +15,8 @@ cùng luồng gửi cảnh báo bất đồng bộ.
 ## Kết quả nổi bật
 
 - Xử lý một luồng 720p ở **26.5 FPS** trên NVIDIA RTX 3050 Laptop GPU.
-- Đạt **27.6 FPS tổng** khi benchmark đồng thời bốn luồng video.
-- **208 automated tests** đang pass với khoảng **70% code coverage**.
+- Đạt **27.6 FPS tổng** khi benchmark đồng thời bốn luồng video (**6.9 FPS/luồng** trung bình).
+- **208 automated tests** đang pass.
 - Dashboard realtime có pose/tracking overlay, ROI/line editor, alert history và cấu hình runtime.
 - Behavior modules gồm fall/recovery, intrusion, loitering, stranger watch, asset missing/removed và experimental theft scoring.
 - Behavior analytics là prototype thực nghiệm; kết quả pilot và giới hạn được đánh giá riêng, không coi là hệ thống an ninh production-ready.
@@ -24,6 +24,42 @@ cùng luồng gửi cảnh báo bất đồng bộ.
 Luồng xử lý chính:
 
 Camera(s) -> YOLOv11 Detection -> ByteTrack Tracking -> Behavior Analysis -> Telegram Alert -> FastAPI Dashboard
+
+Mỗi camera có capture/analysis worker và trạng thái tracker riêng. FastAPI cung cấp MJPEG stream, cấu hình ROI/line và lịch sử cảnh báo; notification worker gửi Telegram/Discord bất đồng bộ với cooldown, deduplication và retry. SQLite lưu alert history và cấu hình; ứng dụng chạy migration khi khởi động.
+
+## Đánh giá và kiểm thử
+
+- Benchmark dùng video local 1280 x 720, YOLO11s + pose, RTX 3050 Laptop GPU; mỗi mức 1/2/4 luồng chạy 3 lần, 15 giây/lần sau 30 frame warm-up. Kết quả trung bình: **26.5 FPS** (1 luồng), **27.6 FPS tổng / 6.9 FPS mỗi luồng** (4 luồng). Đây là throughput của pipeline benchmark, không phải accuracy của detector.
+- Pilot có **40 clip** từ P01 và P02, mỗi người 20 clip chia development/test. Mỗi tập test giữ lại **10 clip**: 1 sự kiện dương và 1 clip âm cho mỗi hành vi. Hai kết quả dưới đây thuộc hai phiên bản đánh giá khác nhau (P01 v2, P02 v3), được trình bày riêng, không gộp thành một điểm chung.
+- Bộ test tự động hiện chạy **208/208** bằng lệnh:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests -q
+```
+
+Giới hạn vào `tests` để tránh pytest thu thập bản clone kiểm tra nằm trong thư mục `tmp` cục bộ.
+
+### P01 frozen test — 10 clip
+
+| Hành vi | Đúng TP | Sai FP | Bỏ sót FN | F1 |
+| --- | ---: | ---: | ---: | ---: |
+| Intrusion | 1 | 5 | 0 | 0.29 |
+| Loitering | 1 | 0 | 0 | 1.00 |
+| Suspicious behavior | 1 | 0 | 0 | 1.00 |
+| Theft | 0 | 1 | 1 | 0.00 |
+| Line crossing | 1 | 2 | 0 | 0.50 |
+
+### P02 test — 10 clip
+
+| Hành vi | Đúng TP | Sai FP | Bỏ sót FN | F1 |
+| --- | ---: | ---: | ---: | ---: |
+| Intrusion | 0 | 5 | 1 | 0.00 |
+| Loitering | 1 | 2 | 0 | 0.50 |
+| Suspicious behavior | 1 | 1 | 0 | 0.67 |
+| Theft | 0 | 1 | 1 | 0.00 |
+| Line crossing | 0 | 5 | 1 | 0.00 |
+
+TP là cảnh báo khớp sự kiện; FP là cảnh báo không khớp, gồm cả cảnh báo lặp trên clip dương; FN là sự kiện bị bỏ sót. Vì FP đếm **cảnh báo**, không đếm clip âm, một hành vi có thể có nhiều FP trên chỉ 2 clip. Mỗi F1 ở đây dựa trên đúng 1 sự kiện dương và 1 clip âm, nên không nên suy rộng thành hiệu năng thực tế. [CSV gốc rút gọn và phương pháp đọc số liệu](evidence/README.md) cho phép đối chiếu từng hàng; video và annotation chi tiết không nằm trong repo công khai.
 
 ## Tính năng chính
 
